@@ -81,7 +81,17 @@ namespace back_mylife.Controllers
         [HttpGet("today-classes/{userId}")]
         public async Task<IActionResult> GetTodayClasses(Guid userId)
         {
-            var now = DateTime.Now;
+            DateTime now;
+            try
+            {
+                var tz = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Bangkok");
+                now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            }
+            catch
+            {
+                now = DateTime.UtcNow.AddHours(7);
+            }
+
             var todayOfWeek = now.DayOfWeek;
             var currentTime = now.TimeOfDay;
 
