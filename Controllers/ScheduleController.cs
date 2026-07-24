@@ -1,0 +1,107 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using back_mylife.Data;
+using back_mylife.Models;
+
+namespace back_mylife.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class ScheduleController : ControllerBase
+    {
+        private readonly AppDbContext _context;
+
+        public ScheduleController(AppDbContext context)
+        {
+            _context = context;
+        }
+
+        // Academic Terms
+        [HttpGet("terms/{userId}")]
+        public async Task<IActionResult> GetTerms(Guid userId)
+        {
+            var terms = await _context.AcademicTerms
+                .Include(t => t.Courses)
+                .Where(t => t.UserId == userId)
+                .OrderByDescending(t => t.StartDate)
+                .ToListAsync();
+            return Ok(terms);
+        }
+
+        [HttpPost("terms")]
+        public async Task<IActionResult> AddTerm([FromBody] AcademicTerm term)
+        {
+            term.Id = Guid.NewGuid();
+            _context.AcademicTerms.Add(term);
+            await _context.SaveChangesAsync();
+            return Ok(term);
+        }
+
+        // Courses
+        [HttpPost("courses")]
+        public async Task<IActionResult> AddCourse([FromBody] Course course)
+        {
+            course.Id = Guid.NewGuid();
+            _context.Courses.Add(course);
+            await _context.SaveChangesAsync();
+            return Ok(course);
+        }
+
+        [HttpPut("courses/{id}")]
+        public async Task<IActionResult> UpdateCourse(Guid id, [FromBody] Course course)
+        {
+            var existing = await _context.Courses.FindAsync(id);
+            if (existing == null) return NotFound();
+
+            existing.CourseCode = course.CourseCode;
+            existing.CourseName = course.CourseName;
+            existing.Room = course.Room;
+            existing.Instructor = course.Instructor;
+            existing.DayOfWeek = course.DayOfWeek;
+            existing.StartTime = course.StartTime;
+            existing.EndTime = course.EndTime;
+            existing.ColorHex = course.ColorHex;
+
+            await _context.SaveChangesAsync();
+            return Ok(existing);
+        }
+
+        [HttpDelete("courses/{id}")]
+        public async Task<IActionResult> DeleteCourse(Guid id)
+        {
+            var existing = await _context.Courses.FindAsync(id);
+            if (existing == null) return NotFound();
+
+            _context.Courses.Remove(existing);
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "ลบวิชาเรียนสำเร็จ" });
+        }
+
+        // Overview endpoint: Previous, Current, Next class
+        [HttpGet("today-classes/{userId}")]
+        public async Task<IActionResult> GetTodayClasses(Guid userId)
+        {
+            var now = DateTime.Now;
+            var todayOfWeek = now.DayOfWeek;
+            var currentTime = now.TimeOfDay;
+
+            var courses = await _context.Courses
+                .Include(c => c.Term)
+                .Where(c => c.Term!.UserId == userId && c.DayOfWeek == todayOfWeek)
+                .OrderBy(c => c.StartTime)
+                .ToListAsync();
+
+            var previousCourse = courses.LastOrDefault(c => c.EndTime <= currentTime);
+            var currentCourse = courses.FirstOrDefault(c => c.StartTime <= currentTime && c.EndTime >= currentTime);
+            var nextCourse = courses.FirstOrDefault(c => c.StartTime > currentTime);
+
+            return Ok(new
+            {
+                allToday = courses,
+                previous = previousCourse,
+                current = currentCourse,
+                next = nextCourse
+            });
+        }
+    }
+}
