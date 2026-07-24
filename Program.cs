@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using back_mylife.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.IdentityModel.Tokens;
 
 // โหลดไฟล์ .env ถ้ามีอยู่
@@ -66,17 +68,28 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Auto-migrate or ensure database created in development environment
+// Auto-migrate or ensure database and tables created
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        db.Database.EnsureCreated();
+        var databaseCreator = db.Database.GetService<IDatabaseCreator>() as RelationalDatabaseCreator;
+        if (databaseCreator != null)
+        {
+            if (!databaseCreator.Exists())
+            {
+                databaseCreator.Create();
+            }
+            if (!databaseCreator.HasTables())
+            {
+                databaseCreator.CreateTables();
+            }
+        }
     }
     catch (Exception ex)
     {
-        app.Logger.LogWarning(ex, "Could not automatically create/migrate DB. Make sure local Postgres / CockroachDB is running if connecting to DB.");
+        app.Logger.LogWarning(ex, "Could not automatically create/migrate DB. Make sure Postgres / CockroachDB is running.");
     }
 }
 
