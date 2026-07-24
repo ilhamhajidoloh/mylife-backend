@@ -81,9 +81,14 @@ using (var scope = app.Services.CreateScope())
             {
                 databaseCreator.Create();
             }
-            if (!databaseCreator.HasTables())
+            try
             {
                 databaseCreator.CreateTables();
+                app.Logger.LogInformation("Database tables created successfully.");
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogInformation("CreateTables skipped or tables already exist: " + ex.Message);
             }
         }
     }
@@ -103,6 +108,7 @@ app.UseCors("AllowAll");
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapGet("/", () => Results.Ok(new { message = "MyLife API is running!", status = "Healthy" }));
 app.MapControllers();
 
 app.Run();
