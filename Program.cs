@@ -91,6 +91,22 @@ using (var scope = app.Services.CreateScope())
                 app.Logger.LogInformation("CreateTables skipped or tables already exist: " + ex.Message);
             }
         }
+
+        await db.Database.ExecuteSqlRawAsync(@"
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'TodoItems'
+    ) AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'TodoItems' AND column_name = 'Recurrence'
+    ) THEN
+        ALTER TABLE ""TodoItems"" ADD COLUMN ""Recurrence"" integer NOT NULL DEFAULT 0;
+    END IF;
+END $$;");
     }
     catch (Exception ex)
     {

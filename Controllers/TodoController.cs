@@ -61,6 +61,7 @@ namespace back_mylife.Controllers
             existing.Title = item.Title;
             existing.TargetDate = item.TargetDate;
             existing.Tag = item.Tag;
+            existing.Recurrence = item.Recurrence;
             existing.IsCompleted = item.IsCompleted;
 
             await _context.SaveChangesAsync();

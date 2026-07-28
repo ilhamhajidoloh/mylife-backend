@@ -36,6 +36,7 @@ namespace back_mylife.Models
         public string Title { get; set; } = string.Empty;
         public DateTime TargetDate { get; set; } = DateTime.UtcNow.Date;
         public string Tag { get; set; } = "ทั่วไป";
+        public RecurrenceType Recurrence { get; set; } = RecurrenceType.None;
         public bool IsCompleted { get; set; } = false;
 
         [JsonIgnore]
