@@ -151,7 +151,8 @@ namespace back_mylife.Controllers
                 allToday = courses,
                 previous = previousCourse,
                 current = currentCourse,
-                next = nextCourse
+                next = nextCourse,
+                termName = courses.FirstOrDefault()?.Term?.TermName ?? "ภาคเรียน"
             });
         }
     }
