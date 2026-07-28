@@ -142,9 +142,15 @@ namespace back_mylife.Controllers
                     .ToListAsync();
             }
 
-            var previousCourse = courses.LastOrDefault(c => c.EndTime <= currentTime);
-            var currentCourse = courses.FirstOrDefault(c => c.StartTime <= currentTime && c.EndTime >= currentTime);
-            var nextCourse = courses.FirstOrDefault(c => c.StartTime > currentTime);
+            var activeTerm = await _context.AcademicTerms
+                .Where(t => t.UserId == userId && t.StartDate.Date <= nowDate && t.EndDate.Date >= nowDate)
+                .FirstOrDefaultAsync()
+                ?? await _context.AcademicTerms
+                .Where(t => t.UserId == userId)
+                .OrderByDescending(t => t.StartDate)
+                .FirstOrDefaultAsync();
+
+            var termName = activeTerm?.TermName ?? courses.FirstOrDefault()?.Term?.TermName;
 
             return Ok(new
             {
@@ -152,7 +158,7 @@ namespace back_mylife.Controllers
                 previous = previousCourse,
                 current = currentCourse,
                 next = nextCourse,
-                termName = courses.FirstOrDefault()?.Term?.TermName ?? "ภาคเรียน"
+                termName = termName
             });
         }
     }
