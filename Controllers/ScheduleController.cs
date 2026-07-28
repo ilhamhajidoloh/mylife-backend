@@ -152,6 +152,10 @@ namespace back_mylife.Controllers
 
             var termName = activeTerm?.TermName ?? courses.FirstOrDefault()?.Term?.TermName;
 
+            var previousCourse = courses.LastOrDefault(c => c.EndTime <= currentTime);
+            var currentCourse = courses.FirstOrDefault(c => c.StartTime <= currentTime && c.EndTime >= currentTime);
+            var nextCourse = courses.FirstOrDefault(c => c.StartTime > currentTime);
+
             return Ok(new
             {
                 allToday = courses,
