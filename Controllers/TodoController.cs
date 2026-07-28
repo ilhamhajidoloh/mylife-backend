@@ -28,7 +28,7 @@ namespace back_mylife.Controllers
 
             if (year != null && month != null && day != null)
             {
-                query = query.Where(t => t.TargetDate.Year == year && t.TargetDate.Month == month && t.TargetDate.Day == day);
+                query = FilterForDate(query, new DateTime(year.Value, month.Value, day.Value));
             }
             else if (year != null && month != null)
             {
@@ -84,8 +84,9 @@ namespace back_mylife.Controllers
         {
             var targetDate = (date ?? DateTime.UtcNow).Date;
 
-            var todos = await _context.TodoItems
-                .Where(t => t.UserId == userId && t.TargetDate.Date == targetDate)
+            var todos = await FilterForDate(
+                    _context.TodoItems.Where(t => t.UserId == userId),
+                    targetDate)
                 .ToListAsync();
 
             int total = todos.Count;
@@ -100,6 +101,30 @@ namespace back_mylife.Controllers
                 percentage = Math.Round(percentage, 1),
                 todos
             });
+        }
+
+        private static IQueryable<TodoItem> FilterForDate(
+            IQueryable<TodoItem> query,
+            DateTime date)
+        {
+            var targetDate = date.Date;
+            var dayOfWeek = targetDate.DayOfWeek;
+
+            return query.Where(t =>
+                (t.Recurrence == RecurrenceType.None &&
+                    t.TargetDate.Date == targetDate) ||
+                (t.Recurrence == RecurrenceType.Daily &&
+                    t.TargetDate.Date <= targetDate) ||
+                (t.Recurrence == RecurrenceType.Weekly &&
+                    t.TargetDate.Date <= targetDate &&
+                    t.TargetDate.DayOfWeek == dayOfWeek) ||
+                (t.Recurrence == RecurrenceType.Monthly &&
+                    t.TargetDate.Date <= targetDate &&
+                    t.TargetDate.Day == targetDate.Day) ||
+                (t.Recurrence == RecurrenceType.Yearly &&
+                    t.TargetDate.Date <= targetDate &&
+                    t.TargetDate.Month == targetDate.Month &&
+                    t.TargetDate.Day == targetDate.Day));
         }
     }
 }
