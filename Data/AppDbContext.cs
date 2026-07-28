@@ -14,6 +14,7 @@ namespace back_mylife.Data
         public DbSet<Course> Courses { get; set; }
         public DbSet<Activity> Activities { get; set; }
         public DbSet<TodoItem> TodoItems { get; set; }
+        public DbSet<TodoCompletion> TodoCompletions { get; set; }
         public DbSet<Assignment> Assignments { get; set; }
         public DbSet<HealthLog> HealthLogs { get; set; }
 
@@ -60,6 +61,16 @@ namespace back_mylife.Data
                 .HasOne(t => t.User)
                 .WithMany(u => u.TodoItems)
                 .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<TodoCompletion>()
+                .HasIndex(c => new { c.TodoItemId, c.CompletedDate })
+                .IsUnique();
+
+            modelBuilder.Entity<TodoCompletion>()
+                .HasOne(c => c.TodoItem)
+                .WithMany()
+                .HasForeignKey(c => c.TodoItemId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Assignment>()

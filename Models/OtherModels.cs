@@ -43,6 +43,23 @@ namespace back_mylife.Models
         public User? User { get; set; }
     }
 
+    public class TodoCompletion
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid TodoItemId { get; set; }
+        public DateTime CompletedDate { get; set; }
+        public bool IsCompleted { get; set; }
+
+        [JsonIgnore]
+        public TodoItem? TodoItem { get; set; }
+    }
+
+    public class TodoCompletionUpdate
+    {
+        public DateTime Date { get; set; }
+        public bool IsCompleted { get; set; }
+    }
+
     public class Assignment
     {
         public Guid Id { get; set; } = Guid.NewGuid();

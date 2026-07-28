@@ -39,7 +39,11 @@ namespace back_mylife.Controllers
                 query = query.Where(t => t.TargetDate.Year == year);
             }
 
-            var list = await query.OrderBy(t => t.TargetDate).ToListAsync();
+            var list = await query.AsNoTracking().OrderBy(t => t.TargetDate).ToListAsync();
+            if (year != null && month != null && day != null)
+            {
+                await ApplyCompletionForDate(list, new DateTime(year.Value, month.Value, day.Value));
+            }
             return Ok(list);
         }
 
@@ -62,7 +66,11 @@ namespace back_mylife.Controllers
             existing.TargetDate = item.TargetDate;
             existing.Tag = item.Tag;
             existing.Recurrence = item.Recurrence;
-            existing.IsCompleted = item.IsCompleted;
+            // A recurring todo has a separate completion state for each date.
+            if (existing.Recurrence == RecurrenceType.None)
+            {
+                existing.IsCompleted = item.IsCompleted;
+            }
 
             await _context.SaveChangesAsync();
             return Ok(existing);
@@ -79,6 +87,43 @@ namespace back_mylife.Controllers
             return Ok(new { message = "ลบรายการ Todolist สำเร็จ" });
         }
 
+        [HttpPut("{id}/completion")]
+        public async Task<IActionResult> UpdateCompletion(
+            Guid id,
+            [FromBody] TodoCompletionUpdate update)
+        {
+            var todo = await _context.TodoItems.FindAsync(id);
+            if (todo == null) return NotFound();
+
+            if (todo.Recurrence == RecurrenceType.None)
+            {
+                todo.IsCompleted = update.IsCompleted;
+            }
+            else
+            {
+                var completionDate = update.Date.Date;
+                var completion = await _context.TodoCompletions.SingleOrDefaultAsync(c =>
+                    c.TodoItemId == id && c.CompletedDate == completionDate);
+
+                if (completion == null)
+                {
+                    _context.TodoCompletions.Add(new TodoCompletion
+                    {
+                        TodoItemId = id,
+                        CompletedDate = completionDate,
+                        IsCompleted = update.IsCompleted,
+                    });
+                }
+                else
+                {
+                    completion.IsCompleted = update.IsCompleted;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok();
+        }
+
         [HttpGet("daily-completion/{userId}")]
         public async Task<IActionResult> GetDailyCompletion(Guid userId, [FromQuery] DateTime? date)
         {
@@ -87,7 +132,9 @@ namespace back_mylife.Controllers
             var todos = await FilterForDate(
                     _context.TodoItems.Where(t => t.UserId == userId),
                     targetDate)
+                .AsNoTracking()
                 .ToListAsync();
+            await ApplyCompletionForDate(todos, targetDate);
 
             int total = todos.Count;
             int completed = todos.Count(t => t.IsCompleted);
@@ -125,6 +172,27 @@ namespace back_mylife.Controllers
                     t.TargetDate.Date <= targetDate &&
                     t.TargetDate.Month == targetDate.Month &&
                     t.TargetDate.Day == targetDate.Day));
+        }
+
+        private async Task ApplyCompletionForDate(
+            List<TodoItem> todos,
+            DateTime date)
+        {
+            var recurringIds = todos
+                .Where(t => t.Recurrence != RecurrenceType.None)
+                .Select(t => t.Id)
+                .ToList();
+            if (recurringIds.Count == 0) return;
+
+            var completions = await _context.TodoCompletions
+                .Where(c => recurringIds.Contains(c.TodoItemId) &&
+                    c.CompletedDate == date.Date)
+                .ToDictionaryAsync(c => c.TodoItemId, c => c.IsCompleted);
+
+            foreach (var todo in todos.Where(t => t.Recurrence != RecurrenceType.None))
+            {
+                todo.IsCompleted = completions.GetValueOrDefault(todo.Id, false);
+            }
         }
     }
 }

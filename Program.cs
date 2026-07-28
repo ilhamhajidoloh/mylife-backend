@@ -102,6 +102,16 @@ ADD COLUMN IF NOT EXISTS ""Recurrence"" integer NOT NULL DEFAULT 0;");
         await db.Database.ExecuteSqlRawAsync(@"
 ALTER TABLE IF EXISTS ""Activities""
 ADD COLUMN IF NOT EXISTS ""Recurrence"" integer NOT NULL DEFAULT 0;");
+
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ""TodoCompletions"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""TodoItemId"" uuid NOT NULL REFERENCES ""TodoItems"" (""Id"") ON DELETE CASCADE,
+    ""CompletedDate"" timestamp without time zone NOT NULL,
+    ""IsCompleted"" boolean NOT NULL DEFAULT false
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_TodoCompletions_TodoItemId_CompletedDate""
+ON ""TodoCompletions"" (""TodoItemId"", ""CompletedDate"");");
     }
     catch (Exception ex)
     {
