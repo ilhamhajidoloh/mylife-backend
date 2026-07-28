@@ -51,6 +51,20 @@ namespace back_mylife.Controllers
             return Ok(existing);
         }
 
+        [HttpDelete("terms/{id}")]
+        public async Task<IActionResult> DeleteTerm(Guid id)
+        {
+            var existing = await _context.AcademicTerms
+                .Include(t => t.Courses)
+                .FirstOrDefaultAsync(t => t.Id == id);
+            if (existing == null) return NotFound();
+
+            _context.Courses.RemoveRange(existing.Courses);
+            _context.AcademicTerms.Remove(existing);
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "ลบภาคเรียนสำเร็จ" });
+        }
+
         // Courses
         [HttpPost("courses")]
         public async Task<IActionResult> AddCourse([FromBody] Course course)
@@ -109,11 +123,24 @@ namespace back_mylife.Controllers
             var todayOfWeek = now.DayOfWeek;
             var currentTime = now.TimeOfDay;
 
+            var nowDate = now.Date;
             var courses = await _context.Courses
                 .Include(c => c.Term)
-                .Where(c => c.Term!.UserId == userId && c.DayOfWeek == todayOfWeek)
+                .Where(c => c.Term!.UserId == userId
+                         && c.DayOfWeek == todayOfWeek
+                         && c.Term.StartDate.Date <= nowDate
+                         && c.Term.EndDate.Date >= nowDate)
                 .OrderBy(c => c.StartTime)
                 .ToListAsync();
+
+            if (!courses.Any())
+            {
+                courses = await _context.Courses
+                    .Include(c => c.Term)
+                    .Where(c => c.Term!.UserId == userId && c.DayOfWeek == todayOfWeek)
+                    .OrderBy(c => c.StartTime)
+                    .ToListAsync();
+            }
 
             var previousCourse = courses.LastOrDefault(c => c.EndTime <= currentTime);
             var currentCourse = courses.FirstOrDefault(c => c.StartTime <= currentTime && c.EndTime >= currentTime);
