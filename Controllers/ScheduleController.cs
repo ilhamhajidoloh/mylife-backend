@@ -37,6 +37,20 @@ namespace back_mylife.Controllers
             return Ok(term);
         }
 
+        [HttpPut("terms/{id}")]
+        public async Task<IActionResult> UpdateTerm(Guid id, [FromBody] AcademicTerm term)
+        {
+            var existing = await _context.AcademicTerms.FindAsync(id);
+            if (existing == null) return NotFound();
+
+            existing.TermName = term.TermName;
+            existing.StartDate = term.StartDate;
+            existing.EndDate = term.EndDate;
+
+            await _context.SaveChangesAsync();
+            return Ok(existing);
+        }
+
         // Courses
         [HttpPost("courses")]
         public async Task<IActionResult> AddCourse([FromBody] Course course)

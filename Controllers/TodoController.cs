@@ -17,13 +17,26 @@ namespace back_mylife.Controllers
         }
 
         [HttpGet("{userId}")]
-        public async Task<IActionResult> GetTodos(Guid userId, [FromQuery] string? filterType, [FromQuery] string? tag)
+        public async Task<IActionResult> GetTodos(Guid userId, [FromQuery] string? tag, [FromQuery] int? year, [FromQuery] int? month, [FromQuery] int? day)
         {
             var query = _context.TodoItems.Where(t => t.UserId == userId);
 
             if (!string.IsNullOrEmpty(tag))
             {
                 query = query.Where(t => t.Tag == tag);
+            }
+
+            if (year != null && month != null && day != null)
+            {
+                query = query.Where(t => t.TargetDate.Year == year && t.TargetDate.Month == month && t.TargetDate.Day == day);
+            }
+            else if (year != null && month != null)
+            {
+                query = query.Where(t => t.TargetDate.Year == year && t.TargetDate.Month == month);
+            }
+            else if (year != null)
+            {
+                query = query.Where(t => t.TargetDate.Year == year);
             }
 
             var list = await query.OrderBy(t => t.TargetDate).ToListAsync();
