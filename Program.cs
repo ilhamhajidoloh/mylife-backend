@@ -92,21 +92,16 @@ using (var scope = app.Services.CreateScope())
             }
         }
 
+        // CockroachDB does not support PostgreSQL's procedural DO blocks.  Use
+        // idempotent DDL that is supported by both CockroachDB and PostgreSQL
+        // so deployments can upgrade databases created before Recurrence existed.
         await db.Database.ExecuteSqlRawAsync(@"
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'TodoItems'
-    ) AND NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'TodoItems' AND column_name = 'Recurrence'
-    ) THEN
-        ALTER TABLE ""TodoItems"" ADD COLUMN ""Recurrence"" integer NOT NULL DEFAULT 0;
-    END IF;
-END $$;");
+ALTER TABLE IF EXISTS ""TodoItems""
+ADD COLUMN IF NOT EXISTS ""Recurrence"" integer NOT NULL DEFAULT 0;");
+
+        await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE IF EXISTS ""Activities""
+ADD COLUMN IF NOT EXISTS ""Recurrence"" integer NOT NULL DEFAULT 0;");
     }
     catch (Exception ex)
     {
