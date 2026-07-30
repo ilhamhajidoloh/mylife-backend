@@ -33,11 +33,19 @@ namespace back_mylife.Controllers
             }
             else if (year != null && month != null)
             {
-                query = query.Where(t => t.TargetDate.Year == year && t.TargetDate.Month == month);
+                var endOfMonth = new DateTime(year.Value, month.Value, DateTime.DaysInMonth(year.Value, month.Value));
+                query = query.Where(t =>
+                    (t.Recurrence == RecurrenceType.None && t.TargetDate.Year == year && t.TargetDate.Month == month) ||
+                    (t.Recurrence != RecurrenceType.None && t.TargetDate.Date <= endOfMonth)
+                );
             }
             else if (year != null)
             {
-                query = query.Where(t => t.TargetDate.Year == year);
+                var endOfYear = new DateTime(year.Value, 12, 31);
+                query = query.Where(t =>
+                    (t.Recurrence == RecurrenceType.None && t.TargetDate.Year == year) ||
+                    (t.Recurrence != RecurrenceType.None && t.TargetDate.Date <= endOfYear)
+                );
             }
 
             var list = await query.AsNoTracking().OrderBy(t => t.TargetDate).ToListAsync();
