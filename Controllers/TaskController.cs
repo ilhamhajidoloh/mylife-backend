@@ -5,9 +5,8 @@ using back_mylife.Models;
 
 namespace back_mylife.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
-    public class TaskController : ControllerBase
+    public class TaskController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
 
@@ -19,6 +18,8 @@ namespace back_mylife.Controllers
         [HttpGet("{userId}")]
         public async Task<IActionResult> GetTasks(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var list = await _context.Assignments
                 .Where(a => a.UserId == userId)
                 .OrderBy(a => a.Deadline)
@@ -30,6 +31,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> AddTask([FromBody] Assignment item)
         {
             item.Id = Guid.NewGuid();
+            item.UserId = CurrentUserId;
             _context.Assignments.Add(item);
             await _context.SaveChangesAsync();
             return Ok(item);
@@ -39,7 +41,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> UpdateTask(Guid id, [FromBody] Assignment item)
         {
             var existing = await _context.Assignments.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             existing.Title = item.Title;
             existing.Subject = item.Subject;
@@ -55,7 +57,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> DeleteTask(Guid id)
         {
             var existing = await _context.Assignments.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             _context.Assignments.Remove(existing);
             await _context.SaveChangesAsync();
@@ -65,6 +67,8 @@ namespace back_mylife.Controllers
         [HttpGet("urgent/{userId}")]
         public async Task<IActionResult> GetUrgentTasks(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var now = DateTime.UtcNow;
             var upcoming3Days = now.AddDays(3);
 

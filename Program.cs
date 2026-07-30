@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using back_mylife.Data;
+using back_mylife.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -21,11 +22,20 @@ builder.Configuration["Jwt:Issuer"] = Environment.GetEnvironmentVariable("JWT_IS
 builder.Configuration["Jwt:Audience"] = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? builder.Configuration["Jwt:Audience"];
 builder.Configuration["Jwt:ExpiryDays"] = Environment.GetEnvironmentVariable("JWT_EXPIRY_DAYS") ?? builder.Configuration["Jwt:ExpiryDays"] ?? "7";
 
+// Google Calendar OAuth client (สำหรับแลกเปลี่ยน/ต่ออายุ token และซิงก์กิจกรรม)
+builder.Configuration["Google:ClientId"] = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID") ?? builder.Configuration["Google:ClientId"];
+builder.Configuration["Google:ClientSecret"] = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_SECRET") ?? builder.Configuration["Google:ClientSecret"];
+
+// Service API key สำหรับ endpoint ที่เรียกโดยบริการภายนอก (เช่น LINE bot worker) แทน user JWT
+builder.Configuration["Service:ApiKey"] = Environment.GetEnvironmentVariable("SERVICE_API_KEY") ?? builder.Configuration["Service:ApiKey"];
+
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy.CamelCase));
     });
 builder.Services.AddOpenApi();
 
@@ -54,6 +64,9 @@ var connString = Environment.GetEnvironmentVariable("DEFAULT_CONNECTION")
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connString));
+
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<GoogleCalendarService>();
 
 // Enable CORS for Flutter app development
 builder.Services.AddCors(options =>
@@ -112,6 +125,49 @@ CREATE TABLE IF NOT EXISTS ""TodoCompletions"" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ""IX_TodoCompletions_TodoItemId_CompletedDate""
 ON ""TodoCompletions"" (""TodoItemId"", ""CompletedDate"");");
+
+        // Todo: description/status/priority/reminder tracking (migrated away from Supabase).
+        await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE IF EXISTS ""TodoItems""
+ADD COLUMN IF NOT EXISTS ""Description"" text NULL,
+ADD COLUMN IF NOT EXISTS ""Status"" integer NOT NULL DEFAULT 0,
+ADD COLUMN IF NOT EXISTS ""Priority"" integer NOT NULL DEFAULT 1,
+ADD COLUMN IF NOT EXISTS ""ReminderSentAt"" timestamp without time zone NULL;");
+
+        // Activity: reminder + Google Calendar sync tracking (migrated away from Supabase).
+        await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE IF EXISTS ""Activities""
+ADD COLUMN IF NOT EXISTS ""ReminderMinutes"" integer NULL,
+ADD COLUMN IF NOT EXISTS ""ReminderSentAt"" timestamp without time zone NULL,
+ADD COLUMN IF NOT EXISTS ""GoogleEventId"" text NULL;");
+
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ""GoogleCalendarConnections"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
+    ""AccessToken"" text NOT NULL,
+    ""RefreshToken"" text NOT NULL,
+    ""TokenExpiresAt"" timestamp without time zone NOT NULL,
+    ""CreatedAt"" timestamp without time zone NOT NULL,
+    ""UpdatedAt"" timestamp without time zone NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_GoogleCalendarConnections_UserId""
+ON ""GoogleCalendarConnections"" (""UserId"");");
+
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ""LineConnections"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
+    ""LineUserId"" text NOT NULL,
+    ""NotificationsEnabled"" boolean NOT NULL DEFAULT true,
+    ""ConnectedAt"" timestamp without time zone NOT NULL,
+    ""SessionStateJson"" text NULL,
+    ""SessionExpiresAt"" timestamp without time zone NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_LineConnections_UserId""
+ON ""LineConnections"" (""UserId"");
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_LineConnections_LineUserId""
+ON ""LineConnections"" (""LineUserId"");");
     }
     catch (Exception ex)
     {

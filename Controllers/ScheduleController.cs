@@ -5,9 +5,8 @@ using back_mylife.Models;
 
 namespace back_mylife.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
-    public class ScheduleController : ControllerBase
+    public class ScheduleController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
 
@@ -20,6 +19,8 @@ namespace back_mylife.Controllers
         [HttpGet("terms/{userId}")]
         public async Task<IActionResult> GetTerms(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var terms = await _context.AcademicTerms
                 .Include(t => t.Courses)
                 .Where(t => t.UserId == userId)
@@ -32,6 +33,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> AddTerm([FromBody] AcademicTerm term)
         {
             term.Id = Guid.NewGuid();
+            term.UserId = CurrentUserId;
             _context.AcademicTerms.Add(term);
             await _context.SaveChangesAsync();
             return Ok(term);
@@ -41,7 +43,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> UpdateTerm(Guid id, [FromBody] AcademicTerm term)
         {
             var existing = await _context.AcademicTerms.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             existing.TermName = term.TermName;
             existing.StartDate = term.StartDate;
@@ -57,7 +59,7 @@ namespace back_mylife.Controllers
             var existing = await _context.AcademicTerms
                 .Include(t => t.Courses)
                 .FirstOrDefaultAsync(t => t.Id == id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             _context.Courses.RemoveRange(existing.Courses);
             _context.AcademicTerms.Remove(existing);
@@ -69,6 +71,9 @@ namespace back_mylife.Controllers
         [HttpPost("courses")]
         public async Task<IActionResult> AddCourse([FromBody] Course course)
         {
+            var term = await _context.AcademicTerms.FindAsync(course.TermId);
+            if (term == null || term.UserId != CurrentUserId) return NotFound();
+
             course.Id = Guid.NewGuid();
             _context.Courses.Add(course);
             await _context.SaveChangesAsync();
@@ -78,8 +83,10 @@ namespace back_mylife.Controllers
         [HttpPut("courses/{id}")]
         public async Task<IActionResult> UpdateCourse(Guid id, [FromBody] Course course)
         {
-            var existing = await _context.Courses.FindAsync(id);
-            if (existing == null) return NotFound();
+            var existing = await _context.Courses
+                .Include(c => c.Term)
+                .FirstOrDefaultAsync(c => c.Id == id);
+            if (existing == null || existing.Term!.UserId != CurrentUserId) return NotFound();
 
             existing.CourseCode = course.CourseCode;
             existing.CourseName = course.CourseName;
@@ -97,8 +104,10 @@ namespace back_mylife.Controllers
         [HttpDelete("courses/{id}")]
         public async Task<IActionResult> DeleteCourse(Guid id)
         {
-            var existing = await _context.Courses.FindAsync(id);
-            if (existing == null) return NotFound();
+            var existing = await _context.Courses
+                .Include(c => c.Term)
+                .FirstOrDefaultAsync(c => c.Id == id);
+            if (existing == null || existing.Term!.UserId != CurrentUserId) return NotFound();
 
             _context.Courses.Remove(existing);
             await _context.SaveChangesAsync();
@@ -109,6 +118,8 @@ namespace back_mylife.Controllers
         [HttpGet("today-classes/{userId}")]
         public async Task<IActionResult> GetTodayClasses(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             DateTime now;
             try
             {

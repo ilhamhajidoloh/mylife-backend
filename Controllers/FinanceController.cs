@@ -5,9 +5,8 @@ using back_mylife.Models;
 
 namespace back_mylife.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
-    public class FinanceController : ControllerBase
+    public class FinanceController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
 
@@ -19,6 +18,8 @@ namespace back_mylife.Controllers
         [HttpGet("{userId}")]
         public async Task<IActionResult> GetTransactions(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var list = await _context.FinanceTransactions
                 .Where(t => t.UserId == userId)
                 .OrderByDescending(t => t.TransactionDate)
@@ -30,6 +31,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> AddTransaction([FromBody] FinanceTransaction item)
         {
             item.Id = Guid.NewGuid();
+            item.UserId = CurrentUserId;
             item.TransactionDate = item.TransactionDate == default ? DateTime.UtcNow : item.TransactionDate;
             _context.FinanceTransactions.Add(item);
             await _context.SaveChangesAsync();
@@ -40,7 +42,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> UpdateTransaction(Guid id, [FromBody] FinanceTransaction item)
         {
             var existing = await _context.FinanceTransactions.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             existing.Type = item.Type;
             existing.Amount = item.Amount;
@@ -56,7 +58,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> DeleteTransaction(Guid id)
         {
             var existing = await _context.FinanceTransactions.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             _context.FinanceTransactions.Remove(existing);
             await _context.SaveChangesAsync();
@@ -66,6 +68,8 @@ namespace back_mylife.Controllers
         [HttpGet("summary/{userId}")]
         public async Task<IActionResult> GetSummary(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var transactions = await _context.FinanceTransactions
                 .Where(t => t.UserId == userId)
                 .ToListAsync();
@@ -103,6 +107,8 @@ namespace back_mylife.Controllers
         [HttpGet("recurring/{userId}")]
         public async Task<IActionResult> GetRecurring(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var list = await _context.RecurringExpenses
                 .Where(r => r.UserId == userId)
                 .ToListAsync();
@@ -113,6 +119,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> AddRecurring([FromBody] RecurringExpense item)
         {
             item.Id = Guid.NewGuid();
+            item.UserId = CurrentUserId;
             _context.RecurringExpenses.Add(item);
             await _context.SaveChangesAsync();
             return Ok(item);
@@ -122,7 +129,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> UpdateRecurring(Guid id, [FromBody] RecurringExpense item)
         {
             var existing = await _context.RecurringExpenses.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             existing.Title = item.Title;
             existing.Amount = item.Amount;
@@ -140,7 +147,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> DeleteRecurring(Guid id)
         {
             var existing = await _context.RecurringExpenses.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             _context.RecurringExpenses.Remove(existing);
             await _context.SaveChangesAsync();
@@ -151,6 +158,8 @@ namespace back_mylife.Controllers
         [HttpGet("breakdown/{userId}")]
         public async Task<IActionResult> GetBreakdown(Guid userId, [FromQuery] string period = "monthly", [FromQuery] int? year = null, [FromQuery] int? month = null)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var transactions = await _context.FinanceTransactions
                 .Where(t => t.UserId == userId)
                 .ToListAsync();

@@ -18,5 +18,7 @@ namespace back_mylife.Models
         public ICollection<TodoItem> TodoItems { get; set; } = new List<TodoItem>();
         public ICollection<Assignment> Assignments { get; set; } = new List<Assignment>();
         public ICollection<HealthLog> HealthLogs { get; set; } = new List<HealthLog>();
+        public GoogleCalendarConnection? GoogleCalendarConnection { get; set; }
+        public LineConnection? LineConnection { get; set; }
     }
 }

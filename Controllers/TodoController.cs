@@ -5,9 +5,8 @@ using back_mylife.Models;
 
 namespace back_mylife.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
-    public class TodoController : ControllerBase
+    public class TodoController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
 
@@ -19,6 +18,8 @@ namespace back_mylife.Controllers
         [HttpGet("{userId}")]
         public async Task<IActionResult> GetTodos(Guid userId, [FromQuery] string? tag, [FromQuery] int? year, [FromQuery] int? month, [FromQuery] int? day)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var query = _context.TodoItems.Where(t => t.UserId == userId);
 
             if (!string.IsNullOrEmpty(tag))
@@ -51,6 +52,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> AddTodo([FromBody] TodoItem item)
         {
             item.Id = Guid.NewGuid();
+            item.UserId = CurrentUserId;
             _context.TodoItems.Add(item);
             await _context.SaveChangesAsync();
             return Ok(item);
@@ -60,12 +62,15 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> UpdateTodo(Guid id, [FromBody] TodoItem item)
         {
             var existing = await _context.TodoItems.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             existing.Title = item.Title;
+            existing.Description = item.Description;
             existing.TargetDate = item.TargetDate;
             existing.Tag = item.Tag;
             existing.Recurrence = item.Recurrence;
+            existing.Status = item.Status;
+            existing.Priority = item.Priority;
             // A recurring todo has a separate completion state for each date.
             if (existing.Recurrence == RecurrenceType.None)
             {
@@ -76,11 +81,22 @@ namespace back_mylife.Controllers
             return Ok(existing);
         }
 
+        [HttpPut("{id}/reminder-sent")]
+        public async Task<IActionResult> MarkReminderSent(Guid id)
+        {
+            var existing = await _context.TodoItems.FindAsync(id);
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
+
+            existing.ReminderSentAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            return Ok(existing);
+        }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTodo(Guid id)
         {
             var existing = await _context.TodoItems.FindAsync(id);
-            if (existing == null) return NotFound();
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             _context.TodoItems.Remove(existing);
             await _context.SaveChangesAsync();
@@ -93,7 +109,7 @@ namespace back_mylife.Controllers
             [FromBody] TodoCompletionUpdate update)
         {
             var todo = await _context.TodoItems.FindAsync(id);
-            if (todo == null) return NotFound();
+            if (todo == null || todo.UserId != CurrentUserId) return NotFound();
 
             if (todo.Recurrence == RecurrenceType.None)
             {
@@ -127,6 +143,8 @@ namespace back_mylife.Controllers
         [HttpGet("daily-completion/{userId}")]
         public async Task<IActionResult> GetDailyCompletion(Guid userId, [FromQuery] DateTime? date)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var targetDate = (date ?? DateTime.UtcNow).Date;
 
             var todos = await FilterForDate(

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using back_mylife.Data;
@@ -7,9 +8,8 @@ using BCrypt.Net;
 
 namespace back_mylife.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
-    public class AuthController : ControllerBase
+    public class AuthController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration;
@@ -23,7 +23,10 @@ namespace back_mylife.Controllers
         public record RegisterDto(string Email, string Password, string FullName);
         public record LoginDto(string Email, string Password);
         public record SocialLoginDto(string Provider, string ProviderId, string Email, string FullName);
+        public record UpdateProfileDto(string FullName);
+        public record ChangePasswordDto(string CurrentPassword, string NewPassword);
 
+        [AllowAnonymous]
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto dto)
         {
@@ -46,6 +49,7 @@ namespace back_mylife.Controllers
             return Ok(new { message = "ลงทะเบียนสำเร็จ", token, userId = user.Id, email = user.Email, fullName = user.FullName });
         }
 
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
@@ -59,6 +63,7 @@ namespace back_mylife.Controllers
             return Ok(new { message = "เข้าสู่ระบบสำเร็จ", token, userId = user.Id, email = user.Email, fullName = user.FullName });
         }
 
+        [AllowAnonymous]
         [HttpPost("social-login")]
         public async Task<IActionResult> SocialLogin([FromBody] SocialLoginDto dto)
         {
@@ -88,6 +93,54 @@ namespace back_mylife.Controllers
 
             var token = JwtTokenService.GenerateToken(user.Id.ToString(), user.Email, user.FullName, _configuration);
             return Ok(new { message = $"เข้าสู่ระบบผ่าน {dto.Provider} สำเร็จ", token, userId = user.Id, email = user.Email, fullName = user.FullName });
+        }
+
+        [HttpGet("me")]
+        public async Task<IActionResult> GetProfile()
+        {
+            var user = await _context.Users.FindAsync(CurrentUserId);
+            if (user == null) return NotFound();
+
+            return Ok(new { userId = user.Id, email = user.Email, fullName = user.FullName, hasGoogle = user.GoogleId != null, hasLine = user.LineId != null });
+        }
+
+        [HttpPut("profile")]
+        public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileDto dto)
+        {
+            var user = await _context.Users.FindAsync(CurrentUserId);
+            if (user == null) return NotFound();
+
+            if (string.IsNullOrWhiteSpace(dto.FullName))
+            {
+                return BadRequest(new { message = "กรุณาระบุชื่อ-นามสกุล" });
+            }
+
+            user.FullName = dto.FullName.Trim();
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "อัปเดตโปรไฟล์สำเร็จ", userId = user.Id, email = user.Email, fullName = user.FullName });
+        }
+
+        [HttpPut("password")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+        {
+            var user = await _context.Users.FindAsync(CurrentUserId);
+            if (user == null) return NotFound();
+
+            if (string.IsNullOrEmpty(user.PasswordHash) || !BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
+            {
+                return BadRequest(new { message = "รหัสผ่านปัจจุบันไม่ถูกต้อง" });
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            {
+                return BadRequest(new { message = "รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร" });
+            }
+
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "เปลี่ยนรหัสผ่านสำเร็จ" });
         }
     }
 }

@@ -5,9 +5,8 @@ using back_mylife.Models;
 
 namespace back_mylife.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
-    public class HealthController : ControllerBase
+    public class HealthController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
 
@@ -19,6 +18,8 @@ namespace back_mylife.Controllers
         [HttpGet("{userId}")]
         public async Task<IActionResult> GetHealthLogs(Guid userId, [FromQuery] int days = 7)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var startDate = DateTime.UtcNow.AddDays(-days);
 
             var logs = await _context.HealthLogs
@@ -33,6 +34,7 @@ namespace back_mylife.Controllers
         public async Task<IActionResult> LogHealthData([FromBody] HealthLog log)
         {
             log.Id = Guid.NewGuid();
+            log.UserId = CurrentUserId;
             log.RecordedAt = log.RecordedAt == default ? DateTime.UtcNow : log.RecordedAt;
 
             _context.HealthLogs.Add(log);
@@ -45,6 +47,8 @@ namespace back_mylife.Controllers
         [HttpGet("chart-data/{userId}")]
         public async Task<IActionResult> GetChartData(Guid userId)
         {
+            if (!IsCurrentUser(userId)) return Forbid();
+
             var startDate = DateTime.UtcNow.Date.AddDays(-6);
 
             var logs = await _context.HealthLogs

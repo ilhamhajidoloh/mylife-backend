@@ -17,6 +17,8 @@ namespace back_mylife.Data
         public DbSet<TodoCompletion> TodoCompletions { get; set; }
         public DbSet<Assignment> Assignments { get; set; }
         public DbSet<HealthLog> HealthLogs { get; set; }
+        public DbSet<GoogleCalendarConnection> GoogleCalendarConnections { get; set; }
+        public DbSet<LineConnection> LineConnections { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -83,6 +85,30 @@ namespace back_mylife.Data
                 .HasOne(h => h.User)
                 .WithMany(u => u.HealthLogs)
                 .HasForeignKey(h => h.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<GoogleCalendarConnection>()
+                .HasIndex(g => g.UserId)
+                .IsUnique();
+
+            modelBuilder.Entity<GoogleCalendarConnection>()
+                .HasOne(g => g.User)
+                .WithOne(u => u.GoogleCalendarConnection)
+                .HasForeignKey<GoogleCalendarConnection>(g => g.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<LineConnection>()
+                .HasIndex(l => l.UserId)
+                .IsUnique();
+
+            modelBuilder.Entity<LineConnection>()
+                .HasIndex(l => l.LineUserId)
+                .IsUnique();
+
+            modelBuilder.Entity<LineConnection>()
+                .HasOne(l => l.User)
+                .WithOne(u => u.LineConnection)
+                .HasForeignKey<LineConnection>(l => l.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }
