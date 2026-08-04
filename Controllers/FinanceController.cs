@@ -60,6 +60,19 @@ namespace back_mylife.Controllers
             var existing = await _context.FinanceTransactions.FindAsync(id);
             if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
+            // หากรายการที่ถูกลบ เป็นการชำระรายจ่ายประจำ ให้ย้อนรอบวันชำระ (StartDate) ของรายจ่ายประจำกลับ 1 เดือนอัตโนมัติ
+            if (!string.IsNullOrEmpty(existing.Note) && existing.Note.StartsWith("ชำระรายจ่ายประจำ: "))
+            {
+                var title = existing.Note.Replace("ชำระรายจ่ายประจำ: ", "").Trim();
+                var recurring = await _context.RecurringExpenses
+                    .FirstOrDefaultAsync(r => r.UserId == CurrentUserId && (r.Title == title || existing.Note.Contains(r.Title)));
+
+                if (recurring != null)
+                {
+                    recurring.StartDate = recurring.StartDate.AddMonths(-1).Date;
+                }
+            }
+
             _context.FinanceTransactions.Remove(existing);
             await _context.SaveChangesAsync();
             return Ok(new { message = "ลบรายการสำเร็จ" });
@@ -120,6 +133,8 @@ namespace back_mylife.Controllers
         {
             item.Id = Guid.NewGuid();
             item.UserId = CurrentUserId;
+            item.StartDate = item.StartDate.Date;
+            if (item.EndDate.HasValue) item.EndDate = item.EndDate.Value.Date;
             _context.RecurringExpenses.Add(item);
             await _context.SaveChangesAsync();
             return Ok(item);
@@ -134,8 +149,8 @@ namespace back_mylife.Controllers
             existing.Title = item.Title;
             existing.Amount = item.Amount;
             existing.Category = item.Category;
-            existing.StartDate = item.StartDate;
-            existing.EndDate = item.EndDate;
+            existing.StartDate = item.StartDate.Date;
+            existing.EndDate = item.EndDate.HasValue ? item.EndDate.Value.Date : null;
             existing.IsIndefinite = item.IsIndefinite;
             existing.DayOfMonthDue = item.DayOfMonthDue;
 
