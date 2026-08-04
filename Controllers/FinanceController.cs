@@ -61,11 +61,22 @@ namespace back_mylife.Controllers
             if (existing == null || existing.UserId != CurrentUserId) return NotFound();
 
             // หากรายการที่ถูกลบ เป็นการชำระรายจ่ายประจำ ให้ย้อนรอบวันชำระ (StartDate) ของรายจ่ายประจำกลับ 1 เดือนอัตโนมัติ
-            if (!string.IsNullOrEmpty(existing.Note) && existing.Note.StartsWith("ชำระรายจ่ายประจำ: "))
+            if (!string.IsNullOrEmpty(existing.Note) && existing.Note.Contains("ชำระรายจ่ายประจำ"))
             {
-                var title = existing.Note.Replace("ชำระรายจ่ายประจำ: ", "").Trim();
-                var recurring = await _context.RecurringExpenses
-                    .FirstOrDefaultAsync(r => r.UserId == CurrentUserId && (r.Title == title || existing.Note.Contains(r.Title)));
+                var userRecurrings = await _context.RecurringExpenses
+                    .Where(r => r.UserId == CurrentUserId)
+                    .ToListAsync();
+
+                var noteClean = existing.Note.ToLower();
+                var extractedTitle = existing.Note.Replace("ชำระรายจ่ายประจำ:", "").Replace("ชำระรายจ่ายประจำ", "").Trim().ToLower();
+
+                var recurring = userRecurrings.FirstOrDefault(r => 
+                    !string.IsNullOrEmpty(r.Title) && (
+                        r.Title.Trim().ToLower() == extractedTitle ||
+                        noteClean.Contains(r.Title.Trim().ToLower()) ||
+                        (!string.IsNullOrEmpty(extractedTitle) && r.Title.Trim().ToLower().Contains(extractedTitle))
+                    )
+                );
 
                 if (recurring != null)
                 {
