@@ -24,7 +24,7 @@ namespace back_mylife.Controllers
         public record LoginDto(string Email, string Password);
         public record SocialLoginDto(string Provider, string ProviderId, string Email, string FullName);
         public record UpdateProfileDto(string FullName);
-        public record ChangePasswordDto(string CurrentPassword, string NewPassword);
+        public record ChangePasswordDto(string? CurrentPassword, string NewPassword);
 
         [AllowAnonymous]
         [HttpPost("register")]
@@ -101,7 +101,14 @@ namespace back_mylife.Controllers
             var user = await _context.Users.FindAsync(CurrentUserId);
             if (user == null) return NotFound();
 
-            return Ok(new { userId = user.Id, email = user.Email, fullName = user.FullName, hasGoogle = user.GoogleId != null, hasLine = user.LineId != null });
+            return Ok(new { 
+                userId = user.Id, 
+                email = user.Email, 
+                fullName = user.FullName, 
+                hasGoogle = user.GoogleId != null, 
+                hasLine = user.LineId != null,
+                hasPassword = !string.IsNullOrEmpty(user.PasswordHash)
+            });
         }
 
         [HttpPut("profile")]
@@ -127,9 +134,14 @@ namespace back_mylife.Controllers
             var user = await _context.Users.FindAsync(CurrentUserId);
             if (user == null) return NotFound();
 
-            if (string.IsNullOrEmpty(user.PasswordHash) || !BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
+            bool hasPassword = !string.IsNullOrEmpty(user.PasswordHash);
+
+            if (hasPassword)
             {
-                return BadRequest(new { message = "รหัสผ่านปัจจุบันไม่ถูกต้อง" });
+                if (string.IsNullOrEmpty(dto.CurrentPassword) || !BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
+                {
+                    return BadRequest(new { message = "รหัสผ่านปัจจุบันไม่ถูกต้อง" });
+                }
             }
 
             if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
@@ -140,7 +152,7 @@ namespace back_mylife.Controllers
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "เปลี่ยนรหัสผ่านสำเร็จ" });
+            return Ok(new { message = hasPassword ? "เปลี่ยนรหัสผ่านสำเร็จ" : "ตั้งรหัสผ่านสำเร็จ", hasPassword = true });
         }
     }
 }
