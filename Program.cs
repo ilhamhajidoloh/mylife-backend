@@ -1,28 +1,37 @@
-using System.Text;
-using System.Text.Json.Serialization;
-using back_mylife.Data;
-using back_mylife.Services;
+﻿using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using back_mylife.Data;
+using back_mylife.Services;
 
-// โหลดไฟล์ .env ถ้ามีอยู่
-DotNetEnv.Env.Load();
-
-// อนุญาตให้ใช้ DateTime Kind = Unspecified กับ PostgreSQL timestamp
-AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+// Load environment variables from .env file if it exists
+var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+if (File.Exists(envPath))
+{
+    foreach (var line in File.ReadAllLines(envPath))
+    {
+        var trimmed = line.Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
+        var parts = trimmed.Split('=', 2);
+        if (parts.Length == 2)
+        {
+            var key = parts[0].Trim();
+            var value = parts[1].Trim();
+            Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
-// JWT Configuration from Environment Variables
+// Inject secrets from environment variables (populated from .env)
 builder.Configuration["Jwt:Key"] = Environment.GetEnvironmentVariable("JWT_KEY") ?? builder.Configuration["Jwt:Key"];
 builder.Configuration["Jwt:Issuer"] = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? builder.Configuration["Jwt:Issuer"];
 builder.Configuration["Jwt:Audience"] = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? builder.Configuration["Jwt:Audience"];
-builder.Configuration["Jwt:ExpiryDays"] = Environment.GetEnvironmentVariable("JWT_EXPIRY_DAYS") ?? builder.Configuration["Jwt:ExpiryDays"] ?? "7";
-
-// Google Calendar OAuth client (สำหรับแลกเปลี่ยน/ต่ออายุ token และซิงก์กิจกรรม)
 builder.Configuration["Google:ClientId"] = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID") ?? builder.Configuration["Google:ClientId"];
 builder.Configuration["Google:ClientSecret"] = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_SECRET") ?? builder.Configuration["Google:ClientSecret"];
 
@@ -189,6 +198,28 @@ CREATE TABLE IF NOT EXISTS ""ClassRemindersSent"" (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ClassRemindersSent_UserId_CourseId_ClassDate""
 ON ""ClassRemindersSent"" (""UserId"", ""CourseId"", ""ClassDate"");");
+
+        // Multi-Book Finance Support
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ""FinanceBooks"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
+    ""Name"" text NOT NULL DEFAULT 'สมุดหลัก',
+    ""Icon"" text NOT NULL DEFAULT '🏠',
+    ""Color"" text NOT NULL DEFAULT '#8b5cf6',
+    ""IsDefault"" boolean NOT NULL DEFAULT false,
+    ""CreatedAt"" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc')
+);
+CREATE INDEX IF NOT EXISTS ""IX_FinanceBooks_UserId""
+ON ""FinanceBooks"" (""UserId"");");
+
+        await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE IF EXISTS ""FinanceTransactions""
+ADD COLUMN IF NOT EXISTS ""BookId"" uuid NULL REFERENCES ""FinanceBooks"" (""Id"") ON DELETE SET NULL;");
+
+        await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE IF EXISTS ""RecurringExpenses""
+ADD COLUMN IF NOT EXISTS ""BookId"" uuid NULL REFERENCES ""FinanceBooks"" (""Id"") ON DELETE SET NULL;");
     }
     catch (Exception ex)
     {

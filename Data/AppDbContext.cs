@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using back_mylife.Models;
 
 namespace back_mylife.Data
@@ -8,6 +8,7 @@ namespace back_mylife.Data
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
         public DbSet<User> Users { get; set; }
+        public DbSet<FinanceBook> FinanceBooks { get; set; }
         public DbSet<FinanceTransaction> FinanceTransactions { get; set; }
         public DbSet<RecurringExpense> RecurringExpenses { get; set; }
         public DbSet<AcademicTerm> AcademicTerms { get; set; }
@@ -30,17 +31,35 @@ namespace back_mylife.Data
                 .HasIndex(u => u.Email)
                 .IsUnique();
 
+            modelBuilder.Entity<FinanceBook>()
+                .HasOne(b => b.User)
+                .WithMany()
+                .HasForeignKey(b => b.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             modelBuilder.Entity<FinanceTransaction>()
                 .HasOne(f => f.User)
                 .WithMany(u => u.FinanceTransactions)
                 .HasForeignKey(f => f.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            modelBuilder.Entity<FinanceTransaction>()
+                .HasOne(f => f.Book)
+                .WithMany(b => b.Transactions)
+                .HasForeignKey(f => f.BookId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             modelBuilder.Entity<RecurringExpense>()
                 .HasOne(r => r.User)
                 .WithMany(u => u.RecurringExpenses)
                 .HasForeignKey(r => r.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<RecurringExpense>()
+                .HasOne(r => r.Book)
+                .WithMany(b => b.RecurringExpenses)
+                .HasForeignKey(r => r.BookId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<AcademicTerm>()
                 .HasOne(a => a.User)

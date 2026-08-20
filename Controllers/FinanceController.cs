@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using back_mylife.Data;
 using back_mylife.Models;
@@ -15,13 +15,163 @@ namespace back_mylife.Controllers
             _context = context;
         }
 
-        [HttpGet("{userId}")]
-        public async Task<IActionResult> GetTransactions(Guid userId)
+        // ==========================================
+        // Books (สมุดบัญชี) Management APIs
+        // ==========================================
+
+        [HttpGet("books/{userId}")]
+        public async Task<IActionResult> GetBooks(Guid userId)
         {
             if (!IsCurrentUser(userId)) return Forbid();
 
-            var list = await _context.FinanceTransactions
-                .Where(t => t.UserId == userId)
+            var books = await _context.FinanceBooks
+                .Where(b => b.UserId == userId)
+                .OrderByDescending(b => b.IsDefault)
+                .ThenBy(b => b.CreatedAt)
+                .ToListAsync();
+
+            // Auto-provision initial default book if user has none
+            if (books.Count == 0)
+            {
+                var defaultBook = new FinanceBook
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    Name = "สมุดหลัก",
+                    Icon = "🏠",
+                    Color = "#8b5cf6",
+                    IsDefault = true,
+                    CreatedAt = DateTime.UtcNow,
+                };
+                _context.FinanceBooks.Add(defaultBook);
+                await _context.SaveChangesAsync();
+
+                // Backfill existing transactions/recurrings with no BookId
+                var nullTx = await _context.FinanceTransactions
+                    .Where(t => t.UserId == userId && t.BookId == null)
+                    .ToListAsync();
+                foreach (var tx in nullTx) tx.BookId = defaultBook.Id;
+
+                var nullRec = await _context.RecurringExpenses
+                    .Where(r => r.UserId == userId && r.BookId == null)
+                    .ToListAsync();
+                foreach (var r in nullRec) r.BookId = defaultBook.Id;
+
+                await _context.SaveChangesAsync();
+                books.Add(defaultBook);
+            }
+
+            return Ok(books);
+        }
+
+        [HttpPost("books")]
+        public async Task<IActionResult> CreateBook([FromBody] FinanceBook item)
+        {
+            item.Id = Guid.NewGuid();
+            item.UserId = CurrentUserId;
+            item.Name = string.IsNullOrWhiteSpace(item.Name) ? "สมุดใหม่" : item.Name.Trim();
+            item.Icon = string.IsNullOrWhiteSpace(item.Icon) ? "💼" : item.Icon.Trim();
+            item.Color = string.IsNullOrWhiteSpace(item.Color) ? "#8b5cf6" : item.Color.Trim();
+            item.CreatedAt = DateTime.UtcNow;
+
+            var existingBooks = await _context.FinanceBooks
+                .Where(b => b.UserId == CurrentUserId)
+                .ToListAsync();
+
+            if (existingBooks.Count == 0)
+            {
+                item.IsDefault = true;
+            }
+            else if (item.IsDefault)
+            {
+                foreach (var b in existingBooks) b.IsDefault = false;
+            }
+
+            _context.FinanceBooks.Add(item);
+            await _context.SaveChangesAsync();
+            return Ok(item);
+        }
+
+        [HttpPut("books/{id}")]
+        public async Task<IActionResult> UpdateBook(Guid id, [FromBody] FinanceBook item)
+        {
+            var existing = await _context.FinanceBooks.FindAsync(id);
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
+
+            existing.Name = string.IsNullOrWhiteSpace(item.Name) ? existing.Name : item.Name.Trim();
+            existing.Icon = string.IsNullOrWhiteSpace(item.Icon) ? existing.Icon : item.Icon.Trim();
+            existing.Color = string.IsNullOrWhiteSpace(item.Color) ? existing.Color : item.Color.Trim();
+
+            if (item.IsDefault && !existing.IsDefault)
+            {
+                var others = await _context.FinanceBooks
+                    .Where(b => b.UserId == CurrentUserId && b.Id != id)
+                    .ToListAsync();
+                foreach (var b in others) b.IsDefault = false;
+                existing.IsDefault = true;
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(existing);
+        }
+
+        [HttpDelete("books/{id}")]
+        public async Task<IActionResult> DeleteBook(Guid id)
+        {
+            var existing = await _context.FinanceBooks.FindAsync(id);
+            if (existing == null || existing.UserId != CurrentUserId) return NotFound();
+
+            var totalBooks = await _context.FinanceBooks
+                .Where(b => b.UserId == CurrentUserId)
+                .ToListAsync();
+
+            if (totalBooks.Count <= 1)
+            {
+                return BadRequest(new { message = "ไม่สามารถลบสมุดบัญชีเล่มสุดท้ายได้" });
+            }
+
+            // Move transactions & recurring items to another fallback book
+            var fallbackBook = totalBooks.FirstOrDefault(b => b.Id != id && b.IsDefault) 
+                ?? totalBooks.First(b => b.Id != id);
+
+            var txToMove = await _context.FinanceTransactions
+                .Where(t => t.UserId == CurrentUserId && t.BookId == id)
+                .ToListAsync();
+            foreach (var tx in txToMove) tx.BookId = fallbackBook.Id;
+
+            var recToMove = await _context.RecurringExpenses
+                .Where(r => r.UserId == CurrentUserId && r.BookId == id)
+                .ToListAsync();
+            foreach (var r in recToMove) r.BookId = fallbackBook.Id;
+
+            if (existing.IsDefault)
+            {
+                fallbackBook.IsDefault = true;
+            }
+
+            _context.FinanceBooks.Remove(existing);
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "ลบสมุดบัญชีสำเร็จ", fallbackBookId = fallbackBook.Id });
+        }
+
+        // ==========================================
+        // Transactions APIs
+        // ==========================================
+
+        [HttpGet("{userId}")]
+        public async Task<IActionResult> GetTransactions(Guid userId, [FromQuery] Guid? bookId = null)
+        {
+            if (!IsCurrentUser(userId)) return Forbid();
+
+            var query = _context.FinanceTransactions
+                .Where(t => t.UserId == userId);
+
+            if (bookId.HasValue)
+            {
+                query = query.Where(t => t.BookId == bookId.Value);
+            }
+
+            var list = await query
                 .OrderByDescending(t => t.TransactionDate)
                 .ToListAsync();
             return Ok(list);
@@ -33,6 +183,15 @@ namespace back_mylife.Controllers
             item.Id = Guid.NewGuid();
             item.UserId = CurrentUserId;
             item.TransactionDate = item.TransactionDate == default ? DateTime.UtcNow : item.TransactionDate;
+
+            // Auto-assign default book if bookId is null
+            if (!item.BookId.HasValue)
+            {
+                var defaultBook = await _context.FinanceBooks
+                    .FirstOrDefaultAsync(b => b.UserId == CurrentUserId && b.IsDefault);
+                if (defaultBook != null) item.BookId = defaultBook.Id;
+            }
+
             _context.FinanceTransactions.Add(item);
             await _context.SaveChangesAsync();
             return Ok(item);
@@ -49,6 +208,7 @@ namespace back_mylife.Controllers
             existing.Category = item.Category;
             existing.TransactionDate = item.TransactionDate;
             existing.Note = item.Note;
+            if (item.BookId.HasValue) existing.BookId = item.BookId;
 
             await _context.SaveChangesAsync();
             return Ok(existing);
@@ -90,13 +250,19 @@ namespace back_mylife.Controllers
         }
 
         [HttpGet("summary/{userId}")]
-        public async Task<IActionResult> GetSummary(Guid userId)
+        public async Task<IActionResult> GetSummary(Guid userId, [FromQuery] Guid? bookId = null)
         {
             if (!IsCurrentUser(userId)) return Forbid();
 
-            var transactions = await _context.FinanceTransactions
-                .Where(t => t.UserId == userId)
-                .ToListAsync();
+            var query = _context.FinanceTransactions
+                .Where(t => t.UserId == userId);
+
+            if (bookId.HasValue)
+            {
+                query = query.Where(t => t.BookId == bookId.Value);
+            }
+
+            var transactions = await query.ToListAsync();
 
             decimal totalIncome = transactions.Where(t => t.Type == TransactionType.Income).Sum(t => t.Amount);
             decimal totalExpense = transactions.Where(t => t.Type == TransactionType.Expense).Sum(t => t.Amount);
@@ -127,15 +293,24 @@ namespace back_mylife.Controllers
             });
         }
 
+        // ==========================================
         // Recurring Expenses APIs
+        // ==========================================
+
         [HttpGet("recurring/{userId}")]
-        public async Task<IActionResult> GetRecurring(Guid userId)
+        public async Task<IActionResult> GetRecurring(Guid userId, [FromQuery] Guid? bookId = null)
         {
             if (!IsCurrentUser(userId)) return Forbid();
 
-            var list = await _context.RecurringExpenses
-                .Where(r => r.UserId == userId)
-                .ToListAsync();
+            var query = _context.RecurringExpenses
+                .Where(r => r.UserId == userId);
+
+            if (bookId.HasValue)
+            {
+                query = query.Where(r => r.BookId == bookId.Value);
+            }
+
+            var list = await query.ToListAsync();
             return Ok(list);
         }
 
@@ -146,6 +321,15 @@ namespace back_mylife.Controllers
             item.UserId = CurrentUserId;
             item.StartDate = item.StartDate.Date;
             if (item.EndDate.HasValue) item.EndDate = item.EndDate.Value.Date;
+
+            // Auto-assign default book if bookId is null
+            if (!item.BookId.HasValue)
+            {
+                var defaultBook = await _context.FinanceBooks
+                    .FirstOrDefaultAsync(b => b.UserId == CurrentUserId && b.IsDefault);
+                if (defaultBook != null) item.BookId = defaultBook.Id;
+            }
+
             _context.RecurringExpenses.Add(item);
             await _context.SaveChangesAsync();
             return Ok(item);
@@ -164,6 +348,7 @@ namespace back_mylife.Controllers
             existing.EndDate = item.EndDate.HasValue ? item.EndDate.Value.Date : null;
             existing.IsIndefinite = item.IsIndefinite;
             existing.DayOfMonthDue = item.DayOfMonthDue;
+            if (item.BookId.HasValue) existing.BookId = item.BookId;
 
             await _context.SaveChangesAsync();
             return Ok(existing);
@@ -182,13 +367,19 @@ namespace back_mylife.Controllers
 
         // สรุปรายรับ-รายจ่ายแบบรายวัน/รายเดือน/รายปี สำหรับตารางและกราฟเปรียบเทียบ
         [HttpGet("breakdown/{userId}")]
-        public async Task<IActionResult> GetBreakdown(Guid userId, [FromQuery] string period = "monthly", [FromQuery] int? year = null, [FromQuery] int? month = null)
+        public async Task<IActionResult> GetBreakdown(Guid userId, [FromQuery] string period = "monthly", [FromQuery] int? year = null, [FromQuery] int? month = null, [FromQuery] Guid? bookId = null)
         {
             if (!IsCurrentUser(userId)) return Forbid();
 
-            var transactions = await _context.FinanceTransactions
-                .Where(t => t.UserId == userId)
-                .ToListAsync();
+            var query = _context.FinanceTransactions
+                .Where(t => t.UserId == userId);
+
+            if (bookId.HasValue)
+            {
+                query = query.Where(t => t.BookId == bookId.Value);
+            }
+
+            var transactions = await query.ToListAsync();
 
             var now = DateTime.UtcNow;
             var targetYear = year ?? now.Year;
