@@ -9,6 +9,22 @@ namespace back_mylife.Controllers
     public class FinanceController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
+        private static DateTime EnsureUtc(DateTime dt)
+        {
+            if (dt == default) return DateTime.UtcNow;
+            return dt.Kind switch
+            {
+                DateTimeKind.Utc => dt,
+                DateTimeKind.Local => dt.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+            };
+        }
+
+        private static DateTime? EnsureUtc(DateTime? dt)
+        {
+            if (!dt.HasValue) return null;
+            return EnsureUtc(dt.Value);
+        }
 
         public FinanceController(AppDbContext context)
         {
@@ -182,7 +198,7 @@ namespace back_mylife.Controllers
         {
             item.Id = Guid.NewGuid();
             item.UserId = CurrentUserId;
-            item.TransactionDate = item.TransactionDate == default ? DateTime.UtcNow : item.TransactionDate;
+            item.TransactionDate = EnsureUtc(item.TransactionDate);
 
             // Auto-assign default book if bookId is null
             if (!item.BookId.HasValue)
@@ -206,7 +222,7 @@ namespace back_mylife.Controllers
             existing.Type = item.Type;
             existing.Amount = item.Amount;
             existing.Category = item.Category;
-            existing.TransactionDate = item.TransactionDate;
+            existing.TransactionDate = EnsureUtc(item.TransactionDate);
             existing.Note = item.Note;
             if (item.BookId.HasValue) existing.BookId = item.BookId;
 
@@ -240,7 +256,7 @@ namespace back_mylife.Controllers
 
                 if (recurring != null)
                 {
-                    recurring.StartDate = recurring.StartDate.AddMonths(-1).Date;
+                    recurring.StartDate = EnsureUtc(recurring.StartDate.AddMonths(-1));
                 }
             }
 
@@ -319,8 +335,8 @@ namespace back_mylife.Controllers
         {
             item.Id = Guid.NewGuid();
             item.UserId = CurrentUserId;
-            item.StartDate = item.StartDate.Date;
-            if (item.EndDate.HasValue) item.EndDate = item.EndDate.Value.Date;
+            item.StartDate = EnsureUtc(item.StartDate);
+            item.EndDate = EnsureUtc(item.EndDate);
 
             // Auto-assign default book if bookId is null
             if (!item.BookId.HasValue)
@@ -344,8 +360,8 @@ namespace back_mylife.Controllers
             existing.Title = item.Title;
             existing.Amount = item.Amount;
             existing.Category = item.Category;
-            existing.StartDate = item.StartDate.Date;
-            existing.EndDate = item.EndDate.HasValue ? item.EndDate.Value.Date : null;
+            existing.StartDate = EnsureUtc(item.StartDate);
+            existing.EndDate = EnsureUtc(item.EndDate);
             existing.IsIndefinite = item.IsIndefinite;
             existing.DayOfMonthDue = item.DayOfMonthDue;
             if (item.BookId.HasValue) existing.BookId = item.BookId;

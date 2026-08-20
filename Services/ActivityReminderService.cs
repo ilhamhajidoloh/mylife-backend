@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using back_mylife.Data;
 using back_mylife.Models;
 
@@ -27,13 +27,21 @@ namespace back_mylife.Services
         {
             try
             {
-                var thaiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+                                TimeZoneInfo thaiTimeZone;
+                try
+                {
+                    thaiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+                }
+                catch
+                {
+                    thaiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Bangkok");
+                }
                 var nowUtc = DateTime.UtcNow;
                 var nowThai = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, thaiTimeZone);
 
                 _logger.LogInformation($"Checking activity reminders at {nowThai:yyyy-MM-dd HH:mm:ss} Thai time");
 
-                // หาผู้ใช้ที่เปิดการแจ้งเตือน LINE
+                // เธซเธฒเธเธนเนเนเธเนเธ—เธตเนเน€เธเธดเธ”เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ LINE
                 var usersWithNotifications = await _context.LineConnections
                     .Where(lc => lc.NotificationsEnabled)
                     .Include(lc => lc.User)
@@ -46,7 +54,7 @@ namespace back_mylife.Services
                 {
                     if (lineConnection.User == null) continue;
 
-                    // หากิจกรรมที่มี ReminderMinutes และยังไม่ได้ส่งแจ้งเตือน
+                    // เธซเธฒเธเธดเธเธเธฃเธฃเธกเธ—เธตเนเธกเธต ReminderMinutes เนเธฅเธฐเธขเธฑเธเนเธกเนเนเธ”เนเธชเนเธเนเธเนเธเน€เธ•เธทเธญเธ
                     var activitiesNeedingReminder = lineConnection.User.Activities
                         .Where(a =>
                             a.ReminderMinutes.HasValue &&
@@ -60,16 +68,16 @@ namespace back_mylife.Services
                     {
                         if (!activity.StartTime.HasValue) continue;
 
-                        // แปลงเวลาจาก UTC เป็น Thai time
+                        // เนเธเธฅเธเน€เธงเธฅเธฒเธเธฒเธ UTC เน€เธเนเธ Thai time
                         var activityStartThai = TimeZoneInfo.ConvertTimeFromUtc(activity.StartTime.Value, thaiTimeZone);
                         var reminderTime = activityStartThai.AddMinutes(-activity.ReminderMinutes.Value);
 
-                        // ตรวจสอบว่าถึงเวลาแจ้งเตือนหรือยัง (ภายใน 5 นาทีหลังจากเวลาที่กำหนด)
+                        // เธ•เธฃเธงเธเธชเธญเธเธงเนเธฒเธ–เธถเธเน€เธงเธฅเธฒเนเธเนเธเน€เธ•เธทเธญเธเธซเธฃเธทเธญเธขเธฑเธ (เธ เธฒเธขเนเธ 5 เธเธฒเธ—เธตเธซเธฅเธฑเธเธเธฒเธเน€เธงเธฅเธฒเธ—เธตเนเธเธณเธซเธเธ”)
                         var timeDifference = (nowThai - reminderTime).TotalMinutes;
 
                         if (timeDifference >= 0 && timeDifference <= 5)
                         {
-                            // ส่งการแจ้งเตือน
+                            // เธชเนเธเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ
                             var sent = await SendActivityReminder(
                                 lineConnection.LineUserId,
                                 activity,
@@ -78,7 +86,7 @@ namespace back_mylife.Services
 
                             if (sent)
                             {
-                                // อัปเดตว่าส่งแล้ว
+                                // เธญเธฑเธเน€เธ”เธ•เธงเนเธฒเธชเนเธเนเธฅเนเธง
                                 activity.ReminderSentAt = nowUtc;
                                 await _context.SaveChangesAsync();
 
@@ -90,7 +98,7 @@ namespace back_mylife.Services
                     }
                 }
 
-                // Reset ReminderSentAt สำหรับกิจกรรมที่ผ่านไปแล้ว (เพื่อรองรับ recurring activities ในอนาคต)
+                // Reset ReminderSentAt เธชเธณเธซเธฃเธฑเธเธเธดเธเธเธฃเธฃเธกเธ—เธตเนเธเนเธฒเธเนเธเนเธฅเนเธง (เน€เธเธทเนเธญเธฃเธญเธเธฃเธฑเธ recurring activities เนเธเธญเธเธฒเธเธ•)
                 var pastActivities = await _context.Activities
                     .Where(a =>
                         a.ReminderSentAt.HasValue &&
@@ -127,7 +135,15 @@ namespace back_mylife.Services
                     return false;
                 }
 
-                var thaiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+                                TimeZoneInfo thaiTimeZone;
+                try
+                {
+                    thaiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+                }
+                catch
+                {
+                    thaiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Bangkok");
+                }
                 var startTimeThai = activity.StartTime.HasValue
                     ? TimeZoneInfo.ConvertTimeFromUtc(activity.StartTime.Value, thaiTimeZone)
                     : DateTime.MinValue;
@@ -139,11 +155,11 @@ namespace back_mylife.Services
                 string timeText;
                 if (activity.IsAllDay)
                 {
-                    timeText = $"{startTimeThai:dd/MM/yyyy} (ตลอดวัน)";
+                    timeText = $"{startTimeThai:dd/MM/yyyy} (เธ•เธฅเธญเธ”เธงเธฑเธ)";
                 }
                 else if (activity.IsMultiDay)
                 {
-                    timeText = $"{startTimeThai:dd/MM/yyyy HH:mm} ถึง {endTimeThai:dd/MM/yyyy HH:mm}";
+                    timeText = $"{startTimeThai:dd/MM/yyyy HH:mm} เธ–เธถเธ {endTimeThai:dd/MM/yyyy HH:mm}";
                 }
                 else
                 {
@@ -154,14 +170,14 @@ namespace back_mylife.Services
                     }
                 }
 
-                var locationText = !string.IsNullOrEmpty(activity.Location) ? $"\n📍 สถานที่: {activity.Location}" : "";
+                var locationText = !string.IsNullOrEmpty(activity.Location) ? $"\n๐“ เธชเธ–เธฒเธเธ—เธตเน: {activity.Location}" : "";
 
-                var message = $@"🔔 แจ้งเตือนกิจกรรม
+                var message = $@"๐”” เนเธเนเธเน€เธ•เธทเธญเธเธเธดเธเธเธฃเธฃเธก
 
-📅 {activity.Title}
-🕐 {timeText}{locationText}
+๐“… {activity.Title}
+๐• {timeText}{locationText}
 
-⏰ กิจกรรมจะเริ่มในอีก {minutesBefore} นาที";
+โฐ เธเธดเธเธเธฃเธฃเธกเธเธฐเน€เธฃเธดเนเธกเนเธเธญเธตเธ {minutesBefore} เธเธฒเธ—เธต";
 
                 var httpClient = _httpClientFactory.CreateClient();
                 httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {lineChannelAccessToken}");
@@ -200,3 +216,4 @@ namespace back_mylife.Services
         }
     }
 }
+

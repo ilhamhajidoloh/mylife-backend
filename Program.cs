@@ -8,6 +8,8 @@ using System.Text;
 using back_mylife.Data;
 using back_mylife.Services;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 // Load environment variables from .env file if it exists
 var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
 if (File.Exists(envPath))
