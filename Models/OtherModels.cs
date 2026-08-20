@@ -127,11 +127,27 @@ namespace back_mylife.Models
         public Guid UserId { get; set; }
         public string LineUserId { get; set; } = string.Empty;
         public bool NotificationsEnabled { get; set; } = true;
+        public bool ClassRemindersEnabled { get; set; } = false;
+        public int ClassReminderMinutes { get; set; } = 15;
         public DateTime ConnectedAt { get; set; } = DateTime.UtcNow;
         public string? SessionStateJson { get; set; }
         public DateTime? SessionExpiresAt { get; set; }
 
         [JsonIgnore]
         public User? User { get; set; }
+    }
+
+    public class ClassReminderSent
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid UserId { get; set; }
+        public Guid CourseId { get; set; }
+        public DateTime ClassDate { get; set; }
+        public DateTime SentAt { get; set; } = DateTime.UtcNow;
+
+        [JsonIgnore]
+        public User? User { get; set; }
+        [JsonIgnore]
+        public Course? Course { get; set; }
     }
 }

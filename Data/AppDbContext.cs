@@ -19,6 +19,7 @@ namespace back_mylife.Data
         public DbSet<HealthLog> HealthLogs { get; set; }
         public DbSet<GoogleCalendarConnection> GoogleCalendarConnections { get; set; }
         public DbSet<LineConnection> LineConnections { get; set; }
+        public DbSet<ClassReminderSent> ClassRemindersSent { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -109,6 +110,22 @@ namespace back_mylife.Data
                 .HasOne(l => l.User)
                 .WithOne(u => u.LineConnection)
                 .HasForeignKey<LineConnection>(l => l.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ClassReminderSent>()
+                .HasIndex(c => new { c.UserId, c.CourseId, c.ClassDate })
+                .IsUnique();
+
+            modelBuilder.Entity<ClassReminderSent>()
+                .HasOne(c => c.User)
+                .WithMany()
+                .HasForeignKey(c => c.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ClassReminderSent>()
+                .HasOne(c => c.Course)
+                .WithMany()
+                .HasForeignKey(c => c.CourseId)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }

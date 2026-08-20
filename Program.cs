@@ -67,6 +67,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<GoogleCalendarService>();
+builder.Services.AddScoped<ClassReminderService>();
+builder.Services.AddHostedService<ClassReminderBackgroundService>();
 
 // Enable CORS for Flutter app development
 builder.Services.AddCors(options =>
@@ -168,6 +170,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS ""IX_LineConnections_UserId""
 ON ""LineConnections"" (""UserId"");
 CREATE UNIQUE INDEX IF NOT EXISTS ""IX_LineConnections_LineUserId""
 ON ""LineConnections"" (""LineUserId"");");
+
+        // Add class reminder columns to LineConnections
+        await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE IF EXISTS ""LineConnections""
+ADD COLUMN IF NOT EXISTS ""ClassRemindersEnabled"" boolean NOT NULL DEFAULT false,
+ADD COLUMN IF NOT EXISTS ""ClassReminderMinutes"" integer NOT NULL DEFAULT 15;");
+
+        // Create ClassRemindersSent table
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ""ClassRemindersSent"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
+    ""CourseId"" uuid NOT NULL REFERENCES ""Courses"" (""Id"") ON DELETE CASCADE,
+    ""ClassDate"" timestamp without time zone NOT NULL,
+    ""SentAt"" timestamp without time zone NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ClassRemindersSent_UserId_CourseId_ClassDate""
+ON ""ClassRemindersSent"" (""UserId"", ""CourseId"", ""ClassDate"");");
     }
     catch (Exception ex)
     {

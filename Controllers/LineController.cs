@@ -16,7 +16,7 @@ namespace back_mylife.Controllers
             _context = context;
         }
 
-        public record LineConnectDto(string LineUserId, bool NotificationsEnabled);
+        public record LineConnectDto(string LineUserId, bool NotificationsEnabled, bool ClassRemindersEnabled, int ClassReminderMinutes);
         public record LineSessionDto(string? SessionStateJson, DateTime? SessionExpiresAt);
 
         [HttpGet("{userId}")]
@@ -38,6 +38,8 @@ namespace back_mylife.Controllers
                 connected = true,
                 lineUserId = connection.LineUserId,
                 notificationsEnabled = connection.NotificationsEnabled,
+                classRemindersEnabled = connection.ClassRemindersEnabled,
+                classReminderMinutes = connection.ClassReminderMinutes,
                 connectedAt = (DateTime?)connection.ConnectedAt,
             });
         }
@@ -64,8 +66,8 @@ namespace back_mylife.Controllers
         {
             var list = await _context.LineConnections
                 .AsNoTracking()
-                .Where(c => c.NotificationsEnabled)
-                .Select(c => new { userId = c.UserId, lineUserId = c.LineUserId })
+                .Where(c => c.NotificationsEnabled || c.ClassRemindersEnabled)
+                .Select(c => new { userId = c.UserId, lineUserId = c.LineUserId, classRemindersEnabled = c.ClassRemindersEnabled, classReminderMinutes = c.ClassReminderMinutes })
                 .ToListAsync();
             return Ok(list);
         }
@@ -85,6 +87,8 @@ namespace back_mylife.Controllers
                     UserId = userId,
                     LineUserId = dto.LineUserId,
                     NotificationsEnabled = dto.NotificationsEnabled,
+                    ClassRemindersEnabled = dto.ClassRemindersEnabled,
+                    ClassReminderMinutes = dto.ClassReminderMinutes,
                     ConnectedAt = DateTime.UtcNow,
                 };
                 _context.LineConnections.Add(connection);
@@ -93,6 +97,8 @@ namespace back_mylife.Controllers
             {
                 connection.LineUserId = dto.LineUserId;
                 connection.NotificationsEnabled = dto.NotificationsEnabled;
+                connection.ClassRemindersEnabled = dto.ClassRemindersEnabled;
+                connection.ClassReminderMinutes = dto.ClassReminderMinutes;
                 connection.ConnectedAt = DateTime.UtcNow;
             }
 
