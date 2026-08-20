@@ -68,6 +68,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<GoogleCalendarService>();
 builder.Services.AddScoped<ClassReminderService>();
+builder.Services.AddScoped<ActivityReminderService>();
 builder.Services.AddHostedService<ClassReminderBackgroundService>();
 
 // Enable CORS for Flutter app development

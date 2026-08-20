@@ -16,7 +16,7 @@ namespace back_mylife.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("Class Reminder Background Service started");
+            _logger.LogInformation("Class and Activity Reminder Background Service started");
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -24,19 +24,24 @@ namespace back_mylife.Services
                 {
                     using (var scope = _serviceProvider.CreateScope())
                     {
-                        var reminderService = scope.ServiceProvider.GetRequiredService<ClassReminderService>();
-                        await reminderService.CheckAndSendReminders();
+                        // ตรวจสอบและส่งแจ้งเตือนคาบเรียน
+                        var classReminderService = scope.ServiceProvider.GetRequiredService<ClassReminderService>();
+                        await classReminderService.CheckAndSendReminders();
+
+                        // ตรวจสอบและส่งแจ้งเตือนกิจกรรม
+                        var activityReminderService = scope.ServiceProvider.GetRequiredService<ActivityReminderService>();
+                        await activityReminderService.CheckAndSendReminders();
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error in Class Reminder Background Service");
+                    _logger.LogError(ex, "Error in Class and Activity Reminder Background Service");
                 }
 
                 await Task.Delay(_checkInterval, stoppingToken);
             }
 
-            _logger.LogInformation("Class Reminder Background Service stopped");
+            _logger.LogInformation("Class and Activity Reminder Background Service stopped");
         }
     }
 }
