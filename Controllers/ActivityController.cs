@@ -158,13 +158,26 @@ namespace back_mylife.Controllers
             }
         }
 
+        private static DateTime GetThaiNow()
+        {
+            try
+            {
+                var tz = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Bangkok");
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            }
+            catch
+            {
+                return DateTime.UtcNow.AddHours(7);
+            }
+        }
+
         // Timeline: Previous, Current, Next activity with countdown
         [HttpGet("timeline/{userId}")]
         public async Task<IActionResult> GetTimeline(Guid userId)
         {
             if (!IsCurrentUser(userId)) return Forbid();
 
-            var now = DateTime.Now;
+            var now = GetThaiNow();
 
             var list = await _context.Activities
                 .Where(a => a.UserId == userId && a.StartTime != null)

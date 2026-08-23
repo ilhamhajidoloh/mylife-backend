@@ -81,8 +81,8 @@ namespace back_mylife.Controllers
                     "info"));
             }
 
-            // 3. กิจกรรมถัดไป — ใช้ DateTime.Now เช่นเดียวกับ ActivityController.GetTimeline
-            var localNow = DateTime.Now;
+            // 3. กิจกรรมถัดไป — ใช้เวลาไทยเช่นเดียวกับ ActivityController.GetTimeline
+            var localNow = thaiNow;
             var nextActivity = await _context.Activities
                 .Where(a => a.UserId == userId && a.StartTime != null && a.StartTime > localNow)
                 .OrderBy(a => a.StartTime)
