@@ -244,20 +244,19 @@ namespace back_mylife.Controllers
                 return NotFound(new { message = "ไม่พบรูปโปรไฟล์ของผู้ใช้นี้" });
             }
 
-            // If public URL, redirect directly
-            if (user.ProfileImageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
-                user.ProfileImageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                return Redirect(user.ProfileImageUrl);
-            }
-
-            // Otherwise stream from OCI object key
-            var (stream, contentType) = await _storageService.GetObjectStreamAsync(user.ProfileImageUrl);
+            var objectKey = _storageService.ExtractObjectKey(user.ProfileImageUrl);
+            var (stream, contentType) = await _storageService.GetObjectStreamAsync(objectKey);
             if (stream == null)
             {
+                if (user.ProfileImageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                    user.ProfileImageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Redirect(user.ProfileImageUrl);
+                }
                 return NotFound(new { message = "ไม่พบไฟล์รูปภาพใน Storage" });
             }
 
+            Response.Headers["Cache-Control"] = "public, max-age=86400";
             return File(stream, contentType);
         }
 
