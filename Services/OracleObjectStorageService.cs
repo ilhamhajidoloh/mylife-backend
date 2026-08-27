@@ -65,7 +65,8 @@ namespace back_mylife.Services
             {
                 ServiceURL = endpoint,
                 ForcePathStyle = true,
-                AuthenticationRegion = _region.Trim()
+                AuthenticationRegion = _region.Trim(),
+                UseAccelerateEndpoint = false
             };
 
             return new AmazonS3Client(_accessKey.Trim(), _secretKey.Trim(), config);
@@ -87,6 +88,11 @@ namespace back_mylife.Services
 
                 using var client = CreateS3Client();
 
+                // Buffer stream to memory to ensure known length and prevent chunked streaming issues with OCI S3 API
+                using var memoryStream = new MemoryStream();
+                await fileStream.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+
                 // Format: profiles/{userId}-{timestamp}.ext
                 var normalizedExt = extension.StartsWith('.') ? extension : $".{extension}";
                 var objectKey = $"profiles/{userId}-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}{normalizedExt}";
@@ -95,8 +101,10 @@ namespace back_mylife.Services
                 {
                     BucketName = _bucketName.Trim(),
                     Key = objectKey,
-                    InputStream = fileStream,
-                    ContentType = contentType
+                    InputStream = memoryStream,
+                    ContentType = contentType,
+                    UseChunkEncoding = false,
+                    DisablePayloadSigning = true
                 };
 
                 var response = await client.PutObjectAsync(putRequest);
