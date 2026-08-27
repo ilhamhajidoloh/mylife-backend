@@ -37,6 +37,43 @@ namespace back_mylife.Controllers
         public record UpdateProfileDto(string FullName);
         public record ChangePasswordDto(string? CurrentPassword, string NewPassword);
 
+        private string? BuildProfileImageUrl(User user)
+        {
+            if (string.IsNullOrWhiteSpace(user.ProfileImageUrl))
+            {
+                return null;
+            }
+
+            var scheme = Request.Headers["X-Forwarded-Proto"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(scheme))
+            {
+                scheme = Request.Scheme;
+            }
+            else
+            {
+                scheme = scheme.Split(',')[0].Trim();
+            }
+
+            var host = Request.Headers["X-Forwarded-Host"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                host = Request.Host.Value;
+            }
+            else
+            {
+                host = host.Split(',')[0].Trim();
+            }
+
+            var path = Url.Action(nameof(GetProfileImage), "Auth", new { userId = user.Id })
+                ?? $"/api/Auth/profile-image/{user.Id}";
+            var proxyUrl = $"{scheme}://{host}{path}";
+
+            var objectKey = _storageService.ExtractObjectKey(user.ProfileImageUrl);
+            return string.IsNullOrWhiteSpace(objectKey)
+                ? proxyUrl
+                : $"{proxyUrl}?v={Uri.EscapeDataString(objectKey)}";
+        }
+
         [AllowAnonymous]
         [HttpPost("register")]
         public async Task<IActionResult> Register([FromBody] RegisterDto dto)
@@ -63,7 +100,7 @@ namespace back_mylife.Controllers
                 userId = user.Id, 
                 email = user.Email, 
                 fullName = user.FullName,
-                profileImageUrl = user.ProfileImageUrl
+                profileImageUrl = BuildProfileImageUrl(user)
             });
         }
 
@@ -84,7 +121,7 @@ namespace back_mylife.Controllers
                 userId = user.Id, 
                 email = user.Email, 
                 fullName = user.FullName,
-                profileImageUrl = user.ProfileImageUrl
+                profileImageUrl = BuildProfileImageUrl(user)
             });
         }
 
@@ -123,7 +160,7 @@ namespace back_mylife.Controllers
                 userId = user.Id, 
                 email = user.Email, 
                 fullName = user.FullName,
-                profileImageUrl = user.ProfileImageUrl
+                profileImageUrl = BuildProfileImageUrl(user)
             });
         }
 
@@ -137,7 +174,7 @@ namespace back_mylife.Controllers
                 userId = user.Id, 
                 email = user.Email, 
                 fullName = user.FullName, 
-                profileImageUrl = user.ProfileImageUrl,
+                profileImageUrl = BuildProfileImageUrl(user),
                 hasGoogle = user.GoogleId != null, 
                 hasLine = user.LineId != null,
                 hasPassword = !string.IsNullOrEmpty(user.PasswordHash),
@@ -164,7 +201,7 @@ namespace back_mylife.Controllers
                 userId = user.Id, 
                 email = user.Email, 
                 fullName = user.FullName,
-                profileImageUrl = user.ProfileImageUrl
+                profileImageUrl = BuildProfileImageUrl(user)
             });
         }
 
@@ -214,7 +251,7 @@ namespace back_mylife.Controllers
 
             return Ok(new { 
                 message = "อัปโหลดรูปโปรไฟล์สำเร็จ", 
-                profileImageUrl = user.ProfileImageUrl 
+                profileImageUrl = BuildProfileImageUrl(user) 
             });
         }
 
@@ -245,14 +282,14 @@ namespace back_mylife.Controllers
             }
 
             var objectKey = _storageService.ExtractObjectKey(user.ProfileImageUrl);
+            if (string.IsNullOrWhiteSpace(objectKey))
+            {
+                return NotFound(new { message = "ไม่พบ key รูปภาพใน Storage" });
+            }
+
             var (stream, contentType) = await _storageService.GetObjectStreamAsync(objectKey);
             if (stream == null)
             {
-                if (user.ProfileImageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
-                    user.ProfileImageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                {
-                    return Redirect(user.ProfileImageUrl);
-                }
                 return NotFound(new { message = "ไม่พบไฟล์รูปภาพใน Storage" });
             }
 
