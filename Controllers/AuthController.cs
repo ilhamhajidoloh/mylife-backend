@@ -13,11 +13,22 @@ namespace back_mylife.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly OracleObjectStorageService _storageService;
+        private readonly ILogger<AuthController> _logger;
 
-        public AuthController(AppDbContext context, IConfiguration configuration)
+        private static readonly string[] AllowedImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
+        private const long MaxImageSizeBytes = 5 * 1024 * 1024; // 5MB
+
+        public AuthController(
+            AppDbContext context, 
+            IConfiguration configuration,
+            OracleObjectStorageService storageService,
+            ILogger<AuthController> logger)
         {
             _context = context;
             _configuration = configuration;
+            _storageService = storageService;
+            _logger = logger;
         }
 
         public record RegisterDto(string Email, string Password, string FullName);
@@ -46,7 +57,14 @@ namespace back_mylife.Controllers
             await _context.SaveChangesAsync();
 
             var token = JwtTokenService.GenerateToken(user.Id.ToString(), user.Email, user.FullName, _configuration);
-            return Ok(new { message = "ลงทะเบียนสำเร็จ", token, userId = user.Id, email = user.Email, fullName = user.FullName });
+            return Ok(new { 
+                message = "ลงทะเบียนสำเร็จ", 
+                token, 
+                userId = user.Id, 
+                email = user.Email, 
+                fullName = user.FullName,
+                profileImageUrl = user.ProfileImageUrl
+            });
         }
 
         [AllowAnonymous]
@@ -60,7 +78,14 @@ namespace back_mylife.Controllers
             }
 
             var token = JwtTokenService.GenerateToken(user.Id.ToString(), user.Email, user.FullName, _configuration);
-            return Ok(new { message = "เข้าสู่ระบบสำเร็จ", token, userId = user.Id, email = user.Email, fullName = user.FullName });
+            return Ok(new { 
+                message = "เข้าสู่ระบบสำเร็จ", 
+                token, 
+                userId = user.Id, 
+                email = user.Email, 
+                fullName = user.FullName,
+                profileImageUrl = user.ProfileImageUrl
+            });
         }
 
         [AllowAnonymous]
@@ -92,7 +117,14 @@ namespace back_mylife.Controllers
             }
 
             var token = JwtTokenService.GenerateToken(user.Id.ToString(), user.Email, user.FullName, _configuration);
-            return Ok(new { message = $"เข้าสู่ระบบผ่าน {dto.Provider} สำเร็จ", token, userId = user.Id, email = user.Email, fullName = user.FullName });
+            return Ok(new { 
+                message = $"เข้าสู่ระบบผ่าน {dto.Provider} สำเร็จ", 
+                token, 
+                userId = user.Id, 
+                email = user.Email, 
+                fullName = user.FullName,
+                profileImageUrl = user.ProfileImageUrl
+            });
         }
 
         [HttpGet("me")]
@@ -105,9 +137,11 @@ namespace back_mylife.Controllers
                 userId = user.Id, 
                 email = user.Email, 
                 fullName = user.FullName, 
+                profileImageUrl = user.ProfileImageUrl,
                 hasGoogle = user.GoogleId != null, 
                 hasLine = user.LineId != null,
-                hasPassword = !string.IsNullOrEmpty(user.PasswordHash)
+                hasPassword = !string.IsNullOrEmpty(user.PasswordHash),
+                oracleStorageConfigured = _storageService.IsConfigured
             });
         }
 
@@ -125,7 +159,106 @@ namespace back_mylife.Controllers
             user.FullName = dto.FullName.Trim();
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "อัปเดตโปรไฟล์สำเร็จ", userId = user.Id, email = user.Email, fullName = user.FullName });
+            return Ok(new { 
+                message = "อัปเดตโปรไฟล์สำเร็จ", 
+                userId = user.Id, 
+                email = user.Email, 
+                fullName = user.FullName,
+                profileImageUrl = user.ProfileImageUrl
+            });
+        }
+
+        [HttpPost("profile-image")]
+        [RequestSizeLimit(MaxImageSizeBytes)]
+        public async Task<IActionResult> UploadProfileImage(IFormFile? file)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "กรุณาเลือกไฟล์รูปภาพที่ต้องการอัปโหลด" });
+            }
+
+            if (file.Length > MaxImageSizeBytes)
+            {
+                return BadRequest(new { message = "ขนาดไฟล์ต้องไม่เกิน 5MB" });
+            }
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (string.IsNullOrEmpty(extension) || !AllowedImageExtensions.Contains(extension))
+            {
+                return BadRequest(new { message = "รองรับเฉพาะไฟล์รูปภาพนามสกุล .jpg, .jpeg, .png, .webp, .gif เท่านั้น" });
+            }
+
+            var user = await _context.Users.FindAsync(CurrentUserId);
+            if (user == null) return NotFound();
+
+            if (!_storageService.IsConfigured)
+            {
+                return BadRequest(new { message = "ระบบ Oracle Cloud Object Storage ยังไม่ได้กำหนดค่า กรุณาตรวจสอบ .env" });
+            }
+
+            using var stream = file.OpenReadStream();
+            var (success, url, errorMessage) = await _storageService.UploadProfileImageAsync(
+                user.Id, 
+                stream, 
+                file.ContentType ?? "image/jpeg", 
+                extension, 
+                user.ProfileImageUrl);
+
+            if (!success || string.IsNullOrEmpty(url))
+            {
+                return StatusCode(500, new { message = errorMessage ?? "อัปโหลดรูปภาพไม่สำเร็จ" });
+            }
+
+            user.ProfileImageUrl = url;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { 
+                message = "อัปโหลดรูปโปรไฟล์สำเร็จ", 
+                profileImageUrl = user.ProfileImageUrl 
+            });
+        }
+
+        [HttpDelete("profile-image")]
+        public async Task<IActionResult> DeleteProfileImage()
+        {
+            var user = await _context.Users.FindAsync(CurrentUserId);
+            if (user == null) return NotFound();
+
+            if (!string.IsNullOrEmpty(user.ProfileImageUrl))
+            {
+                await _storageService.DeleteProfileImageAsync(user.ProfileImageUrl);
+                user.ProfileImageUrl = null;
+                await _context.SaveChangesAsync();
+            }
+
+            return Ok(new { message = "ลบรูปโปรไฟล์สำเร็จ", profileImageUrl = (string?)null });
+        }
+
+        [AllowAnonymous]
+        [HttpGet("profile-image/{userId:guid}")]
+        public async Task<IActionResult> GetProfileImage(Guid userId)
+        {
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null || string.IsNullOrEmpty(user.ProfileImageUrl))
+            {
+                return NotFound(new { message = "ไม่พบรูปโปรไฟล์ของผู้ใช้นี้" });
+            }
+
+            // If public URL, redirect directly
+            if (user.ProfileImageUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                user.ProfileImageUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return Redirect(user.ProfileImageUrl);
+            }
+
+            // Otherwise stream from OCI object key
+            var (stream, contentType) = await _storageService.GetObjectStreamAsync(user.ProfileImageUrl);
+            if (stream == null)
+            {
+                return NotFound(new { message = "ไม่พบไฟล์รูปภาพใน Storage" });
+            }
+
+            return File(stream, contentType);
         }
 
         [HttpPut("password")]

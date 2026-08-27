@@ -8,6 +8,7 @@ namespace back_mylife.Models
         public string FullName { get; set; } = string.Empty;
         public string? GoogleId { get; set; }
         public string? LineId { get; set; }
+        public string? ProfileImageUrl { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Navigation Properties

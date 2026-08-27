@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -40,6 +40,14 @@ builder.Configuration["Google:ClientSecret"] = Environment.GetEnvironmentVariabl
 // Service API key สำหรับ endpoint ที่เรียกโดยบริการภายนอก (เช่น LINE bot worker) แทน user JWT
 builder.Configuration["Service:ApiKey"] = Environment.GetEnvironmentVariable("SERVICE_API_KEY") ?? builder.Configuration["Service:ApiKey"];
 
+// Oracle Cloud Object Storage Configuration
+builder.Configuration["OCI:AccessKey"] = Environment.GetEnvironmentVariable("OCI_S3_ACCESS_KEY") ?? Environment.GetEnvironmentVariable("OCI_ACCESS_KEY") ?? builder.Configuration["OCI:AccessKey"];
+builder.Configuration["OCI:SecretKey"] = Environment.GetEnvironmentVariable("OCI_S3_SECRET_KEY") ?? Environment.GetEnvironmentVariable("OCI_SECRET_KEY") ?? builder.Configuration["OCI:SecretKey"];
+builder.Configuration["OCI:Region"] = Environment.GetEnvironmentVariable("OCI_REGION") ?? builder.Configuration["OCI:Region"] ?? "ap-singapore-1";
+builder.Configuration["OCI:Namespace"] = Environment.GetEnvironmentVariable("OCI_NAMESPACE") ?? builder.Configuration["OCI:Namespace"];
+builder.Configuration["OCI:BucketName"] = Environment.GetEnvironmentVariable("OCI_BUCKET_NAME") ?? builder.Configuration["OCI:BucketName"] ?? "mylife-profile-bucket";
+builder.Configuration["OCI:PublicUrlBase"] = Environment.GetEnvironmentVariable("OCI_PUBLIC_URL_BASE") ?? builder.Configuration["OCI:PublicUrlBase"];
+
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -80,6 +88,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<GoogleCalendarService>();
 builder.Services.AddScoped<ClassReminderService>();
 builder.Services.AddScoped<ActivityReminderService>();
+builder.Services.AddScoped<OracleObjectStorageService>();
 
 var enableBackendReminderWorker = string.Equals(
     Environment.GetEnvironmentVariable("ENABLE_BACKEND_REMINDER_WORKER") ?? builder.Configuration["Reminders:EnableBackgroundWorker"],
@@ -127,6 +136,11 @@ using (var scope = app.Services.CreateScope())
                 app.Logger.LogInformation("CreateTables skipped or tables already exist: " + ex.Message);
             }
         }
+
+        // Add ProfileImageUrl column to Users table
+        await db.Database.ExecuteSqlRawAsync(@"
+ALTER TABLE IF EXISTS ""Users""
+ADD COLUMN IF NOT EXISTS ""ProfileImageUrl"" text NULL;");
 
         // CockroachDB does not support PostgreSQL's procedural DO blocks.  Use
         // idempotent DDL that is supported by both CockroachDB and PostgreSQL
