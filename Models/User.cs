@@ -20,5 +20,6 @@ namespace back_mylife.Models
         public ICollection<HealthLog> HealthLogs { get; set; } = new List<HealthLog>();
         public GoogleCalendarConnection? GoogleCalendarConnection { get; set; }
         public LineConnection? LineConnection { get; set; }
+        public EmailNotificationPreference? EmailNotificationPreference { get; set; }
     }
 }

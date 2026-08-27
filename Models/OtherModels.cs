@@ -137,12 +137,31 @@ namespace back_mylife.Models
         public User? User { get; set; }
     }
 
+    public class EmailNotificationPreference
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid UserId { get; set; }
+        public bool Enabled { get; set; } = true;
+        public string? RecipientEmail { get; set; }
+        public bool ClassRemindersEnabled { get; set; } = true;
+        public int ClassReminderMinutes { get; set; } = 15;
+        public bool EventRemindersEnabled { get; set; } = true;
+        public bool TaskRemindersEnabled { get; set; } = true;
+        public bool BillRemindersEnabled { get; set; } = true;
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        [JsonIgnore]
+        public User? User { get; set; }
+    }
+
     public class ClassReminderSent
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid UserId { get; set; }
         public Guid CourseId { get; set; }
         public DateTime ClassDate { get; set; }
+        public string Channel { get; set; } = "line";
         public DateTime SentAt { get; set; } = DateTime.UtcNow;
 
         [JsonIgnore]

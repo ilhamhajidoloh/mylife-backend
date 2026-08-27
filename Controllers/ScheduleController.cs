@@ -15,6 +15,27 @@ namespace back_mylife.Controllers
             _context = context;
         }
 
+        public record ClassReminderSentRequest(DateTime? ClassDate, string? Channel);
+
+        private static DateTime GetThaiNow()
+        {
+            try
+            {
+                var tz = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Bangkok");
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            }
+            catch
+            {
+                return DateTime.UtcNow.AddHours(7);
+            }
+        }
+
+        private static string NormalizeReminderChannel(string? channel)
+        {
+            var normalized = channel?.Trim().ToLowerInvariant();
+            return normalized == "email" ? "email" : "line";
+        }
+
         // Academic Terms
         [HttpGet("terms/{userId}")]
         public async Task<IActionResult> GetTerms(Guid userId)
@@ -120,16 +141,7 @@ namespace back_mylife.Controllers
         {
             if (!IsCurrentUser(userId)) return Forbid();
 
-            DateTime now;
-            try
-            {
-                var tz = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "SE Asia Standard Time" : "Asia/Bangkok");
-                now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-            }
-            catch
-            {
-                now = DateTime.UtcNow.AddHours(7);
-            }
+            var now = GetThaiNow();
 
             var todayOfWeek = now.DayOfWeek;
             var currentTime = now.TimeOfDay;
@@ -175,6 +187,61 @@ namespace back_mylife.Controllers
                 next = nextCourse,
                 termName = termName
             });
+        }
+
+        [HttpGet("courses/{id}/reminder-sent")]
+        public async Task<IActionResult> GetClassReminderSent(Guid id, [FromQuery] DateTime? classDate, [FromQuery] string? channel)
+        {
+            var course = await _context.Courses
+                .Include(c => c.Term)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == id);
+            if (course == null || course.Term!.UserId != CurrentUserId) return NotFound();
+
+            var targetDate = (classDate ?? GetThaiNow()).Date;
+            var classDateKey = DateTime.SpecifyKind(targetDate, DateTimeKind.Utc);
+            var channelKey = NormalizeReminderChannel(channel);
+            var sent = await _context.ClassRemindersSent.AnyAsync(r =>
+                r.UserId == CurrentUserId &&
+                r.CourseId == id &&
+                r.ClassDate == classDateKey &&
+                r.Channel == channelKey);
+
+            return Ok(new { sent });
+        }
+
+        [HttpPut("courses/{id}/reminder-sent")]
+        public async Task<IActionResult> MarkClassReminderSent(Guid id, [FromBody] ClassReminderSentRequest? request)
+        {
+            var course = await _context.Courses
+                .Include(c => c.Term)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == id);
+            if (course == null || course.Term!.UserId != CurrentUserId) return NotFound();
+
+            var targetDate = (request?.ClassDate ?? GetThaiNow()).Date;
+            var classDateKey = DateTime.SpecifyKind(targetDate, DateTimeKind.Utc);
+            var channelKey = NormalizeReminderChannel(request?.Channel);
+            var alreadySent = await _context.ClassRemindersSent.AnyAsync(r =>
+                r.UserId == CurrentUserId &&
+                r.CourseId == id &&
+                r.ClassDate == classDateKey &&
+                r.Channel == channelKey);
+
+            if (!alreadySent)
+            {
+                _context.ClassRemindersSent.Add(new ClassReminderSent
+                {
+                    UserId = CurrentUserId,
+                    CourseId = id,
+                    ClassDate = classDateKey,
+                    Channel = channelKey,
+                    SentAt = DateTime.UtcNow,
+                });
+                await _context.SaveChangesAsync();
+            }
+
+            return Ok(new { sent = true });
         }
     }
 }

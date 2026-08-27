@@ -98,7 +98,8 @@ namespace back_mylife.Services
                                     .AnyAsync(crs =>
                                         crs.UserId == lineConnection.UserId &&
                                         crs.CourseId == course.Id &&
-                                        crs.ClassDate == todayThaiUtc);
+                                        crs.ClassDate == todayThaiUtc &&
+                                        crs.Channel == "line");
 
                                 if (!alreadySent)
                                 {
@@ -117,6 +118,7 @@ namespace back_mylife.Services
                                             UserId = lineConnection.UserId,
                                             CourseId = course.Id,
                                             ClassDate = todayThaiUtc,
+                                            Channel = "line",
                                             SentAt = nowUtc
                                         };
                                         _context.ClassRemindersSent.Add(reminderSent);

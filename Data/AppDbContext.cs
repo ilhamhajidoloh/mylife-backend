@@ -20,6 +20,7 @@ namespace back_mylife.Data
         public DbSet<HealthLog> HealthLogs { get; set; }
         public DbSet<GoogleCalendarConnection> GoogleCalendarConnections { get; set; }
         public DbSet<LineConnection> LineConnections { get; set; }
+        public DbSet<EmailNotificationPreference> EmailNotificationPreferences { get; set; }
         public DbSet<ClassReminderSent> ClassRemindersSent { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -131,8 +132,18 @@ namespace back_mylife.Data
                 .HasForeignKey<LineConnection>(l => l.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            modelBuilder.Entity<EmailNotificationPreference>()
+                .HasIndex(e => e.UserId)
+                .IsUnique();
+
+            modelBuilder.Entity<EmailNotificationPreference>()
+                .HasOne(e => e.User)
+                .WithOne(u => u.EmailNotificationPreference)
+                .HasForeignKey<EmailNotificationPreference>(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             modelBuilder.Entity<ClassReminderSent>()
-                .HasIndex(c => new { c.UserId, c.CourseId, c.ClassDate })
+                .HasIndex(c => new { c.UserId, c.CourseId, c.ClassDate, c.Channel })
                 .IsUnique();
 
             modelBuilder.Entity<ClassReminderSent>()

@@ -80,7 +80,16 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<GoogleCalendarService>();
 builder.Services.AddScoped<ClassReminderService>();
 builder.Services.AddScoped<ActivityReminderService>();
-builder.Services.AddHostedService<ClassReminderBackgroundService>();
+
+var enableBackendReminderWorker = string.Equals(
+    Environment.GetEnvironmentVariable("ENABLE_BACKEND_REMINDER_WORKER") ?? builder.Configuration["Reminders:EnableBackgroundWorker"],
+    "true",
+    StringComparison.OrdinalIgnoreCase);
+
+if (enableBackendReminderWorker)
+{
+    builder.Services.AddHostedService<ClassReminderBackgroundService>();
+}
 
 // Enable CORS for Flutter app development
 builder.Services.AddCors(options =>
@@ -189,6 +198,23 @@ ALTER TABLE IF EXISTS ""LineConnections""
 ADD COLUMN IF NOT EXISTS ""ClassRemindersEnabled"" boolean NOT NULL DEFAULT false,
 ADD COLUMN IF NOT EXISTS ""ClassReminderMinutes"" integer NOT NULL DEFAULT 15;");
 
+        await db.Database.ExecuteSqlRawAsync(@"
+CREATE TABLE IF NOT EXISTS ""EmailNotificationPreferences"" (
+    ""Id"" uuid NOT NULL PRIMARY KEY,
+    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
+    ""Enabled"" boolean NOT NULL DEFAULT true,
+    ""RecipientEmail"" text NULL,
+    ""ClassRemindersEnabled"" boolean NOT NULL DEFAULT true,
+    ""ClassReminderMinutes"" integer NOT NULL DEFAULT 15,
+    ""EventRemindersEnabled"" boolean NOT NULL DEFAULT true,
+    ""TaskRemindersEnabled"" boolean NOT NULL DEFAULT true,
+    ""BillRemindersEnabled"" boolean NOT NULL DEFAULT true,
+    ""CreatedAt"" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc'),
+    ""UpdatedAt"" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_EmailNotificationPreferences_UserId""
+ON ""EmailNotificationPreferences"" (""UserId"");");
+
         // Create ClassRemindersSent table
         await db.Database.ExecuteSqlRawAsync(@"
 CREATE TABLE IF NOT EXISTS ""ClassRemindersSent"" (
@@ -196,10 +222,14 @@ CREATE TABLE IF NOT EXISTS ""ClassRemindersSent"" (
     ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
     ""CourseId"" uuid NOT NULL REFERENCES ""Courses"" (""Id"") ON DELETE CASCADE,
     ""ClassDate"" timestamp without time zone NOT NULL,
+    ""Channel"" text NOT NULL DEFAULT 'line',
     ""SentAt"" timestamp without time zone NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ClassRemindersSent_UserId_CourseId_ClassDate""
-ON ""ClassRemindersSent"" (""UserId"", ""CourseId"", ""ClassDate"");");
+ALTER TABLE IF EXISTS ""ClassRemindersSent""
+ADD COLUMN IF NOT EXISTS ""Channel"" text NOT NULL DEFAULT 'line';
+DROP INDEX IF EXISTS ""IX_ClassRemindersSent_UserId_CourseId_ClassDate"";
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ClassRemindersSent_UserId_CourseId_ClassDate_Channel""
+ON ""ClassRemindersSent"" (""UserId"", ""CourseId"", ""ClassDate"", ""Channel"");");
 
         // Multi-Book Finance Support
         await db.Database.ExecuteSqlRawAsync(@"
