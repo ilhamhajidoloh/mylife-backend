@@ -27,4 +27,14 @@ public class EmailSenderService(IConfiguration configuration)
         };
         await client.SendMailAsync(message);
     }
+
+    public async Task SendAsync(string recipient, string subject, string body)
+    {
+        if (!IsConfigured) return;
+        var host = configuration["Smtp:Host"]!;
+        var port = int.TryParse(configuration["Smtp:Port"], out var configuredPort) ? configuredPort : 587;
+        using var client = new SmtpClient(host, port) { EnableSsl = !string.Equals(configuration["Smtp:UseSsl"], "false", StringComparison.OrdinalIgnoreCase), Credentials = new NetworkCredential(configuration["Smtp:User"], configuration["Smtp:Password"]) };
+        using var message = new MailMessage(configuration["Smtp:From"] ?? configuration["Smtp:User"]!, recipient) { Subject = subject, Body = body };
+        await client.SendMailAsync(message);
+    }
 }

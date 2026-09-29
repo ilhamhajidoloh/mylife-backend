@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using back_mylife.Data;
 using back_mylife.Models;
+using back_mylife.Services;
 
 namespace back_mylife.Controllers
 {
@@ -9,10 +10,12 @@ namespace back_mylife.Controllers
     public class TodoController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
+        private readonly UserEmailNotificationService _emailNotifications;
 
-        public TodoController(AppDbContext context)
+        public TodoController(AppDbContext context, UserEmailNotificationService emailNotifications)
         {
             _context = context;
+            _emailNotifications = emailNotifications;
         }
 
         [HttpGet("{userId}")]
@@ -63,6 +66,7 @@ namespace back_mylife.Controllers
             item.UserId = CurrentUserId;
             _context.TodoItems.Add(item);
             await _context.SaveChangesAsync();
+            await _emailNotifications.NotifyAsync(item.UserId, "todo", "MyLife: เพิ่ม To-do ใหม่", item.Title);
             return Ok(item);
         }
 
@@ -86,6 +90,7 @@ namespace back_mylife.Controllers
             }
 
             await _context.SaveChangesAsync();
+            await _emailNotifications.NotifyAsync(existing.UserId, "todo", "MyLife: อัปเดต To-do", existing.Title);
             return Ok(existing);
         }
 

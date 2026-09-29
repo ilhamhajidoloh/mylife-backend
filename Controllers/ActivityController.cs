@@ -12,12 +12,14 @@ namespace back_mylife.Controllers
         private readonly AppDbContext _context;
         private readonly GoogleCalendarService _googleCalendar;
         private readonly ILogger<ActivityController> _logger;
+        private readonly UserEmailNotificationService _emailNotifications;
 
-        public ActivityController(AppDbContext context, GoogleCalendarService googleCalendar, ILogger<ActivityController> logger)
+        public ActivityController(AppDbContext context, GoogleCalendarService googleCalendar, ILogger<ActivityController> logger, UserEmailNotificationService emailNotifications)
         {
             _context = context;
             _googleCalendar = googleCalendar;
             _logger = logger;
+            _emailNotifications = emailNotifications;
         }
 
         [HttpGet("{userId}")]
@@ -48,6 +50,7 @@ namespace back_mylife.Controllers
             _context.Activities.Add(item);
             await _context.SaveChangesAsync();
             await TrySyncToGoogleAsync(item);
+            await _emailNotifications.NotifyAsync(item.UserId, "event", "MyLife: เพิ่มกิจกรรมใหม่", item.Title);
             return Ok(item);
         }
 
@@ -70,6 +73,7 @@ namespace back_mylife.Controllers
 
             await _context.SaveChangesAsync();
             await TrySyncToGoogleAsync(existing);
+            await _emailNotifications.NotifyAsync(existing.UserId, "event", "MyLife: อัปเดตกิจกรรม", existing.Title);
             return Ok(existing);
         }
 

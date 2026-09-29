@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using back_mylife.Data;
 using back_mylife.Models;
+using back_mylife.Services;
 
 namespace back_mylife.Controllers
 {
@@ -9,10 +10,12 @@ namespace back_mylife.Controllers
     public class TaskController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
+        private readonly UserEmailNotificationService _emailNotifications;
 
-        public TaskController(AppDbContext context)
+        public TaskController(AppDbContext context, UserEmailNotificationService emailNotifications)
         {
             _context = context;
+            _emailNotifications = emailNotifications;
         }
 
         [HttpGet("{userId}")]
@@ -34,6 +37,7 @@ namespace back_mylife.Controllers
             item.UserId = CurrentUserId;
             _context.Assignments.Add(item);
             await _context.SaveChangesAsync();
+            await _emailNotifications.NotifyAsync(item.UserId, "task", "MyLife: เพิ่มงานใหม่", item.Title);
             return Ok(item);
         }
 
@@ -50,6 +54,7 @@ namespace back_mylife.Controllers
             existing.IsCompleted = item.IsCompleted;
 
             await _context.SaveChangesAsync();
+            await _emailNotifications.NotifyAsync(existing.UserId, "task", "MyLife: อัปเดตงาน", existing.Title);
             return Ok(existing);
         }
 
