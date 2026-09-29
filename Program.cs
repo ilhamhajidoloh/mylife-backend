@@ -89,6 +89,7 @@ builder.Services.AddScoped<GoogleCalendarService>();
 builder.Services.AddScoped<ClassReminderService>();
 builder.Services.AddScoped<ActivityReminderService>();
 builder.Services.AddScoped<OracleObjectStorageService>();
+builder.Services.AddScoped<EmailSenderService>();
 
 var enableBackendReminderWorker = string.Equals(
     Environment.GetEnvironmentVariable("ENABLE_BACKEND_REMINDER_WORKER") ?? builder.Configuration["Reminders:EnableBackgroundWorker"],

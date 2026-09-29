@@ -10,10 +10,14 @@ namespace back_mylife.Controllers
     public class LineController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IConfiguration _configuration;
 
-        public LineController(AppDbContext context)
+        public LineController(AppDbContext context, IHttpClientFactory httpClientFactory, IConfiguration configuration)
         {
             _context = context;
+            _httpClientFactory = httpClientFactory;
+            _configuration = configuration;
         }
 
         public record LineConnectDto(string LineUserId, bool NotificationsEnabled, bool ClassRemindersEnabled, int ClassReminderMinutes);
@@ -133,6 +137,29 @@ namespace back_mylife.Controllers
             connection.SessionExpiresAt = dto.SessionExpiresAt;
             await _context.SaveChangesAsync();
             return Ok(connection);
+        }
+
+        [HttpPost("{userId}/test")]
+        public async Task<IActionResult> SendTest(Guid userId)
+        {
+            if (!IsCurrentUser(userId)) return Forbid();
+            var connection = await _context.LineConnections.AsNoTracking().FirstOrDefaultAsync(c => c.UserId == userId);
+            if (connection == null) return BadRequest(new { message = "ยังไม่ได้เชื่อมต่อ LINE" });
+            var endpoint = _configuration["LINE_MESSAGING_API_URL"];
+            var token = _configuration["LINE_CHANNEL_ACCESS_TOKEN"];
+            if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(token))
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "ยังไม่ได้ตั้งค่า LINE Messaging API บนเซิร์ฟเวอร์" });
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            var response = await client.PostAsJsonAsync(
+                $"{endpoint.TrimEnd('/')}/message/push",
+                new
+                {
+                    to = connection.LineUserId,
+                    messages = new[] { new { type = "text", text = "MyLife: ทดสอบการแจ้งเตือนสำเร็จ" } },
+                });
+            if (!response.IsSuccessStatusCode) return StatusCode((int)response.StatusCode, new { message = "ส่งข้อความ LINE ไม่สำเร็จ" });
+            return Ok(new { message = "ส่งข้อความทดสอบแล้ว" });
         }
     }
 }

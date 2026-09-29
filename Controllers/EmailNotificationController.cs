@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using back_mylife.Data;
 using back_mylife.Models;
+using back_mylife.Services;
 
 namespace back_mylife.Controllers
 {
@@ -10,10 +11,12 @@ namespace back_mylife.Controllers
     public class EmailNotificationController : AuthorizedApiController
     {
         private readonly AppDbContext _context;
+        private readonly EmailSenderService _emailSender;
 
-        public EmailNotificationController(AppDbContext context)
+        public EmailNotificationController(AppDbContext context, EmailSenderService emailSender)
         {
             _context = context;
+            _emailSender = emailSender;
         }
 
         public record EmailNotificationPreferencesDto(
@@ -155,6 +158,20 @@ namespace back_mylife.Controllers
                 .ToListAsync();
 
             return Ok(users);
+        }
+
+        [HttpPost("{userId}/test")]
+        public async Task<IActionResult> SendTest(Guid userId)
+        {
+            if (!IsCurrentUser(userId)) return Forbid();
+            if (!_emailSender.IsConfigured)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "ยังไม่ได้ตั้งค่า SMTP บนเซิร์ฟเวอร์" });
+            var preference = await _context.EmailNotificationPreferences.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == userId);
+            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+            var recipient = preference?.RecipientEmail ?? user?.Email;
+            if (string.IsNullOrWhiteSpace(recipient)) return BadRequest(new { message = "ไม่พบอีเมลผู้รับ" });
+            await _emailSender.SendTestAsync(recipient);
+            return Ok(new { message = "ส่งอีเมลทดสอบแล้ว" });
         }
     }
 }
