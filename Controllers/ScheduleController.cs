@@ -156,15 +156,6 @@ namespace back_mylife.Controllers
                 .OrderBy(c => c.StartTime)
                 .ToListAsync();
 
-            if (!courses.Any())
-            {
-                courses = await _context.Courses
-                    .Include(c => c.Term)
-                    .Where(c => c.Term!.UserId == userId && c.DayOfWeek == todayOfWeek)
-                    .OrderBy(c => c.StartTime)
-                    .ToListAsync();
-            }
-
             var activeTerm = await _context.AcademicTerms
                 .Where(t => t.UserId == userId && t.StartDate.Date <= nowDate && t.EndDate.Date >= nowDate)
                 .FirstOrDefaultAsync()
