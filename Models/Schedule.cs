@@ -19,7 +19,7 @@ namespace back_mylife.Models
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid TermId { get; set; }
-        public string CourseCode { get; set; } = string.Empty;
+        public string? CourseCode { get; set; }
         public string CourseName { get; set; } = string.Empty;
         public string? Room { get; set; }
         public string? Instructor { get; set; }

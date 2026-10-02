@@ -1,16 +1,15 @@
-using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Text.Json.Serialization;
 using back_mylife.Data;
 using back_mylife.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Oracle.ManagedDataAccess.Client;
 
-AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
-
-// Load environment variables from .env file if it exists
+// Load environment variables from .env file if it exists.
+// .env is a local fallback only: variables already present in the process
+// environment (including empty ones) take precedence and are never overwritten.
 var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
 if (File.Exists(envPath))
 {
@@ -18,29 +17,28 @@ if (File.Exists(envPath))
     {
         var trimmed = line.Trim();
         if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
+
         var parts = trimmed.Split('=', 2);
         if (parts.Length == 2)
         {
             var key = parts[0].Trim();
-            var value = parts[1].Trim();
-            Environment.SetEnvironmentVariable(key, value);
+            if (Environment.GetEnvironmentVariable(key) == null)
+            {
+                Environment.SetEnvironmentVariable(key, parts[1].Trim());
+            }
         }
     }
 }
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Inject secrets from environment variables (populated from .env)
 builder.Configuration["Jwt:Key"] = Environment.GetEnvironmentVariable("JWT_KEY") ?? builder.Configuration["Jwt:Key"];
 builder.Configuration["Jwt:Issuer"] = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? builder.Configuration["Jwt:Issuer"];
 builder.Configuration["Jwt:Audience"] = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? builder.Configuration["Jwt:Audience"];
 builder.Configuration["Google:ClientId"] = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_ID") ?? builder.Configuration["Google:ClientId"];
 builder.Configuration["Google:ClientSecret"] = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_SECRET") ?? builder.Configuration["Google:ClientSecret"];
-
-// Service API key สำหรับ endpoint ที่เรียกโดยบริการภายนอก (เช่น LINE bot worker) แทน user JWT
 builder.Configuration["Service:ApiKey"] = Environment.GetEnvironmentVariable("SERVICE_API_KEY") ?? builder.Configuration["Service:ApiKey"];
 
-// Oracle Cloud Object Storage Configuration
 builder.Configuration["OCI:AccessKey"] = Environment.GetEnvironmentVariable("OCI_S3_ACCESS_KEY") ?? Environment.GetEnvironmentVariable("OCI_ACCESS_KEY") ?? builder.Configuration["OCI:AccessKey"];
 builder.Configuration["OCI:SecretKey"] = Environment.GetEnvironmentVariable("OCI_S3_SECRET_KEY") ?? Environment.GetEnvironmentVariable("OCI_SECRET_KEY") ?? builder.Configuration["OCI:SecretKey"];
 builder.Configuration["OCI:Region"] = Environment.GetEnvironmentVariable("OCI_REGION") ?? builder.Configuration["OCI:Region"] ?? "ap-singapore-1";
@@ -48,7 +46,6 @@ builder.Configuration["OCI:Namespace"] = Environment.GetEnvironmentVariable("OCI
 builder.Configuration["OCI:BucketName"] = Environment.GetEnvironmentVariable("OCI_BUCKET_NAME") ?? builder.Configuration["OCI:BucketName"] ?? "mylife-profile-bucket";
 builder.Configuration["OCI:PublicUrlBase"] = Environment.GetEnvironmentVariable("OCI_PUBLIC_URL_BASE") ?? builder.Configuration["OCI:PublicUrlBase"];
 
-// Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -58,7 +55,6 @@ builder.Services.AddControllers()
     });
 builder.Services.AddOpenApi();
 
-// JWT Authentication
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -76,13 +72,45 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
-// Connection String configuration (อ่านจาก .env หรือ appsettings.json)
-var connString = Environment.GetEnvironmentVariable("DEFAULT_CONNECTION") 
-    ?? builder.Configuration.GetConnectionString("DefaultConnection") 
-    ?? "Host=localhost;Database=mylife_db;Username=postgres;Password=postgres";
+var credentialConnectionString = Environment.GetEnvironmentVariable("ORACLE_CONNECTION_STRING")
+    ?? throw new InvalidOperationException("ORACLE_CONNECTION_STRING must be configured.");
+
+var oracleTlsHost = Environment.GetEnvironmentVariable("ORACLE_TLS_HOST")
+    ?? builder.Configuration["OracleTls:Host"]
+    ?? throw new InvalidOperationException("Oracle TLS host must be configured.");
+var oracleTlsServiceName = Environment.GetEnvironmentVariable("ORACLE_TLS_SERVICE_NAME")
+    ?? builder.Configuration["OracleTls:ServiceName"]
+    ?? throw new InvalidOperationException("Oracle TLS service name must be configured.");
+
+OracleConnectionStringBuilder credentialBuilder;
+try
+{
+    credentialBuilder = new OracleConnectionStringBuilder(credentialConnectionString);
+}
+catch (Exception exception)
+{
+    throw new InvalidOperationException("ORACLE_CONNECTION_STRING is invalid.", exception);
+}
+
+if (string.IsNullOrWhiteSpace(credentialBuilder.UserID) || string.IsNullOrWhiteSpace(credentialBuilder.Password))
+{
+    throw new InvalidOperationException("ORACLE_CONNECTION_STRING must contain a user ID and password.");
+}
+
+var directDataSource = $"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCPS)(PORT=1521)(HOST={oracleTlsHost}))(CONNECT_DATA=(SERVICE_NAME={oracleTlsServiceName}))(SECURITY=(SSL_SERVER_DN_MATCH=yes)))";
+var connectionString = new OracleConnectionStringBuilder
+{
+    UserID = credentialBuilder.UserID,
+    Password = credentialBuilder.Password,
+    DataSource = directDataSource
+}.ConnectionString;
+
+// Oracle Managed Data Access uses the operating-system certificate store for TCPS.
+// No downloaded Autonomous Database wallet or local network configuration is required.
+OracleConfiguration.WalletLocation = "system";
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connString));
+    options.UseOracle(connectionString));
 
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<GoogleCalendarService>();
@@ -102,7 +130,6 @@ if (enableBackendReminderWorker)
     builder.Services.AddHostedService<ClassReminderBackgroundService>();
 }
 
-// Enable CORS for Flutter app development
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -115,167 +142,6 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Auto-migrate or ensure database and tables created
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    try
-    {
-        var databaseCreator = db.Database.GetService<IDatabaseCreator>() as RelationalDatabaseCreator;
-        if (databaseCreator != null)
-        {
-            if (!databaseCreator.Exists())
-            {
-                databaseCreator.Create();
-            }
-            try
-            {
-                databaseCreator.CreateTables();
-                app.Logger.LogInformation("Database tables created successfully.");
-            }
-            catch (Exception ex)
-            {
-                app.Logger.LogInformation("CreateTables skipped or tables already exist: " + ex.Message);
-            }
-        }
-
-        // Add ProfileImageUrl column to Users table
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""Users""
-ADD COLUMN IF NOT EXISTS ""ProfileImageUrl"" text NULL;");
-
-        // CockroachDB does not support PostgreSQL's procedural DO blocks.  Use
-        // idempotent DDL that is supported by both CockroachDB and PostgreSQL
-        // so deployments can upgrade databases created before Recurrence existed.
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""TodoItems""
-ADD COLUMN IF NOT EXISTS ""Recurrence"" integer NOT NULL DEFAULT 0;");
-
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""Activities""
-ADD COLUMN IF NOT EXISTS ""Recurrence"" integer NOT NULL DEFAULT 0;");
-
-        await db.Database.ExecuteSqlRawAsync(@"
-CREATE TABLE IF NOT EXISTS ""TodoCompletions"" (
-    ""Id"" uuid NOT NULL PRIMARY KEY,
-    ""TodoItemId"" uuid NOT NULL REFERENCES ""TodoItems"" (""Id"") ON DELETE CASCADE,
-    ""CompletedDate"" timestamp without time zone NOT NULL,
-    ""IsCompleted"" boolean NOT NULL DEFAULT false
-);
-CREATE UNIQUE INDEX IF NOT EXISTS ""IX_TodoCompletions_TodoItemId_CompletedDate""
-ON ""TodoCompletions"" (""TodoItemId"", ""CompletedDate"");");
-
-        // Todo: description/status/priority/reminder tracking (migrated away from Supabase).
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""TodoItems""
-ADD COLUMN IF NOT EXISTS ""Description"" text NULL,
-ADD COLUMN IF NOT EXISTS ""Status"" integer NOT NULL DEFAULT 0,
-ADD COLUMN IF NOT EXISTS ""Priority"" integer NOT NULL DEFAULT 1,
-ADD COLUMN IF NOT EXISTS ""ReminderSentAt"" timestamp without time zone NULL;");
-
-        // Activity: reminder + Google Calendar sync tracking (migrated away from Supabase).
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""Activities""
-ADD COLUMN IF NOT EXISTS ""ReminderMinutes"" integer NULL,
-ADD COLUMN IF NOT EXISTS ""ReminderSentAt"" timestamp without time zone NULL,
-ADD COLUMN IF NOT EXISTS ""GoogleEventId"" text NULL;");
-
-        await db.Database.ExecuteSqlRawAsync(@"
-CREATE TABLE IF NOT EXISTS ""GoogleCalendarConnections"" (
-    ""Id"" uuid NOT NULL PRIMARY KEY,
-    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
-    ""AccessToken"" text NOT NULL,
-    ""RefreshToken"" text NOT NULL,
-    ""TokenExpiresAt"" timestamp without time zone NOT NULL,
-    ""CreatedAt"" timestamp without time zone NOT NULL,
-    ""UpdatedAt"" timestamp without time zone NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS ""IX_GoogleCalendarConnections_UserId""
-ON ""GoogleCalendarConnections"" (""UserId"");");
-
-        await db.Database.ExecuteSqlRawAsync(@"
-CREATE TABLE IF NOT EXISTS ""LineConnections"" (
-    ""Id"" uuid NOT NULL PRIMARY KEY,
-    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
-    ""LineUserId"" text NOT NULL,
-    ""NotificationsEnabled"" boolean NOT NULL DEFAULT true,
-    ""ConnectedAt"" timestamp without time zone NOT NULL,
-    ""SessionStateJson"" text NULL,
-    ""SessionExpiresAt"" timestamp without time zone NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS ""IX_LineConnections_UserId""
-ON ""LineConnections"" (""UserId"");
-CREATE UNIQUE INDEX IF NOT EXISTS ""IX_LineConnections_LineUserId""
-ON ""LineConnections"" (""LineUserId"");");
-
-        // Add class reminder columns to LineConnections
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""LineConnections""
-ADD COLUMN IF NOT EXISTS ""ClassRemindersEnabled"" boolean NOT NULL DEFAULT false,
-ADD COLUMN IF NOT EXISTS ""ClassReminderMinutes"" integer NOT NULL DEFAULT 15;");
-
-        await db.Database.ExecuteSqlRawAsync(@"
-CREATE TABLE IF NOT EXISTS ""EmailNotificationPreferences"" (
-    ""Id"" uuid NOT NULL PRIMARY KEY,
-    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
-    ""Enabled"" boolean NOT NULL DEFAULT true,
-    ""RecipientEmail"" text NULL,
-    ""ClassRemindersEnabled"" boolean NOT NULL DEFAULT true,
-    ""ClassReminderMinutes"" integer NOT NULL DEFAULT 15,
-    ""EventRemindersEnabled"" boolean NOT NULL DEFAULT true,
-    ""TaskRemindersEnabled"" boolean NOT NULL DEFAULT true,
-    ""BillRemindersEnabled"" boolean NOT NULL DEFAULT true,
-    ""CreatedAt"" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc'),
-    ""UpdatedAt"" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc')
-);
-CREATE UNIQUE INDEX IF NOT EXISTS ""IX_EmailNotificationPreferences_UserId""
-ON ""EmailNotificationPreferences"" (""UserId"");");
-
-        // Create ClassRemindersSent table
-        await db.Database.ExecuteSqlRawAsync(@"
-CREATE TABLE IF NOT EXISTS ""ClassRemindersSent"" (
-    ""Id"" uuid NOT NULL PRIMARY KEY,
-    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
-    ""CourseId"" uuid NOT NULL REFERENCES ""Courses"" (""Id"") ON DELETE CASCADE,
-    ""ClassDate"" timestamp without time zone NOT NULL,
-    ""Channel"" text NOT NULL DEFAULT 'line',
-    ""SentAt"" timestamp without time zone NOT NULL
-);
-ALTER TABLE IF EXISTS ""ClassRemindersSent""
-ADD COLUMN IF NOT EXISTS ""Channel"" text NOT NULL DEFAULT 'line';
-DROP INDEX IF EXISTS ""IX_ClassRemindersSent_UserId_CourseId_ClassDate"";
-CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ClassRemindersSent_UserId_CourseId_ClassDate_Channel""
-ON ""ClassRemindersSent"" (""UserId"", ""CourseId"", ""ClassDate"", ""Channel"");");
-
-        // Multi-Book Finance Support
-        await db.Database.ExecuteSqlRawAsync(@"
-CREATE TABLE IF NOT EXISTS ""FinanceBooks"" (
-    ""Id"" uuid NOT NULL PRIMARY KEY,
-    ""UserId"" uuid NOT NULL REFERENCES ""Users"" (""Id"") ON DELETE CASCADE,
-    ""Name"" text NOT NULL DEFAULT 'สมุดหลัก',
-    ""Icon"" text NOT NULL DEFAULT '🏠',
-    ""Color"" text NOT NULL DEFAULT '#8b5cf6',
-    ""IsDefault"" boolean NOT NULL DEFAULT false,
-    ""CreatedAt"" timestamp without time zone NOT NULL DEFAULT (now() at time zone 'utc')
-);
-CREATE INDEX IF NOT EXISTS ""IX_FinanceBooks_UserId""
-ON ""FinanceBooks"" (""UserId"");");
-
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""FinanceTransactions""
-ADD COLUMN IF NOT EXISTS ""BookId"" uuid NULL REFERENCES ""FinanceBooks"" (""Id"") ON DELETE SET NULL;");
-
-        await db.Database.ExecuteSqlRawAsync(@"
-ALTER TABLE IF EXISTS ""RecurringExpenses""
-ADD COLUMN IF NOT EXISTS ""BookId"" uuid NULL REFERENCES ""FinanceBooks"" (""Id"") ON DELETE SET NULL;");
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogWarning(ex, "Could not automatically create/migrate DB. Make sure Postgres / CockroachDB is running.");
-    }
-}
-
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
