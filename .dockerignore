@@ -8,6 +8,11 @@ wallets/
 Wallet_*/
 *.sso
 *.p12
+*.pfx
+*.pem
+*.key
+*.crt
+*.cer
 cwallet.sso
 ewallet.p12
 sqlnet.ora
