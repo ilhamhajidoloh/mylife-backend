@@ -30,31 +30,39 @@ namespace back_mylife.Controllers
                 query = query.Where(t => t.Tag == tag);
             }
 
+            DateTime? selectedDate = null;
+
             if (year != null && month != null && day != null)
             {
-                query = FilterForDate(query, new DateTime(year.Value, month.Value, day.Value));
+                selectedDate = new DateTime(year.Value, month.Value, day.Value);
             }
             else if (year != null && month != null)
             {
-                var endOfMonth = new DateTime(year.Value, month.Value, DateTime.DaysInMonth(year.Value, month.Value));
+                var startOfMonth = new DateTime(year.Value, month.Value, 1);
+                var startOfNextMonth = startOfMonth.AddMonths(1);
                 query = query.Where(t =>
-                    (t.Recurrence == RecurrenceType.None && t.TargetDate.Year == year && t.TargetDate.Month == month) ||
-                    (t.Recurrence != RecurrenceType.None && t.TargetDate.Date <= endOfMonth)
+                    (t.Recurrence == RecurrenceType.None &&
+                        t.TargetDate >= startOfMonth && t.TargetDate < startOfNextMonth) ||
+                    (t.Recurrence != RecurrenceType.None && t.TargetDate < startOfNextMonth)
                 );
             }
             else if (year != null)
             {
-                var endOfYear = new DateTime(year.Value, 12, 31);
+                var startOfYear = new DateTime(year.Value, 1, 1);
+                var startOfNextYear = startOfYear.AddYears(1);
                 query = query.Where(t =>
-                    (t.Recurrence == RecurrenceType.None && t.TargetDate.Year == year) ||
-                    (t.Recurrence != RecurrenceType.None && t.TargetDate.Date <= endOfYear)
+                    (t.Recurrence == RecurrenceType.None &&
+                        t.TargetDate >= startOfYear && t.TargetDate < startOfNextYear) ||
+                    (t.Recurrence != RecurrenceType.None && t.TargetDate < startOfNextYear)
                 );
             }
 
-            var list = await query.AsNoTracking().OrderBy(t => t.TargetDate).ToListAsync();
-            if (year != null && month != null && day != null)
+            var list = selectedDate.HasValue
+                ? await GetTodosForDateAsync(query, selectedDate.Value)
+                : await query.AsNoTracking().OrderBy(t => t.TargetDate).ToListAsync();
+            if (selectedDate.HasValue)
             {
-                await ApplyCompletionForDate(list, new DateTime(year.Value, month.Value, day.Value));
+                await ApplyCompletionForDate(list, selectedDate.Value);
             }
             return Ok(list);
         }
@@ -160,11 +168,8 @@ namespace back_mylife.Controllers
 
             var targetDate = (date ?? DateTime.UtcNow).Date;
 
-            var todos = await FilterForDate(
-                    _context.TodoItems.Where(t => t.UserId == userId),
-                    targetDate)
-                .AsNoTracking()
-                .ToListAsync();
+            var todos = await GetTodosForDateAsync(
+                _context.TodoItems.Where(t => t.UserId == userId), targetDate);
             await ApplyCompletionForDate(todos, targetDate);
 
             int total = todos.Count;
@@ -181,28 +186,44 @@ namespace back_mylife.Controllers
             });
         }
 
-        private static IQueryable<TodoItem> FilterForDate(
+        private static async Task<List<TodoItem>> GetTodosForDateAsync(
             IQueryable<TodoItem> query,
             DateTime date)
         {
             var targetDate = date.Date;
-            var dayOfWeek = targetDate.DayOfWeek;
+            var startOfNextDay = targetDate.AddDays(1);
 
-            return query.Where(t =>
-                (t.Recurrence == RecurrenceType.None &&
-                    t.TargetDate.Date == targetDate) ||
-                (t.Recurrence == RecurrenceType.Daily &&
-                    t.TargetDate.Date <= targetDate) ||
-                (t.Recurrence == RecurrenceType.Weekly &&
-                    t.TargetDate.Date <= targetDate &&
-                    t.TargetDate.DayOfWeek == dayOfWeek) ||
-                (t.Recurrence == RecurrenceType.Monthly &&
-                    t.TargetDate.Date <= targetDate &&
-                    t.TargetDate.Day == targetDate.Day) ||
-                (t.Recurrence == RecurrenceType.Yearly &&
-                    t.TargetDate.Date <= targetDate &&
-                    t.TargetDate.Month == targetDate.Month &&
-                    t.TargetDate.Day == targetDate.Day));
+            // Oracle's EF Core provider cannot translate DateTime.Date or DayOfWeek.
+            // Apply only SQL-translatable filters first, then evaluate recurrence rules in memory.
+            var candidates = await query
+                .Where(t =>
+                    (t.Recurrence == RecurrenceType.None &&
+                        t.TargetDate >= targetDate && t.TargetDate < startOfNextDay) ||
+                    (t.Recurrence != RecurrenceType.None &&
+                        t.TargetDate < startOfNextDay))
+                .AsNoTracking()
+                .OrderBy(t => t.TargetDate)
+                .ToListAsync();
+
+            return candidates.Where(t => OccursOnDate(t, targetDate)).ToList();
+        }
+
+        private static bool OccursOnDate(TodoItem todo, DateTime targetDate)
+        {
+            var todoDate = todo.TargetDate.Date;
+
+            return todo.Recurrence switch
+            {
+                RecurrenceType.None => todoDate == targetDate,
+                RecurrenceType.Daily => todoDate <= targetDate,
+                RecurrenceType.Weekly => todoDate <= targetDate &&
+                    todoDate.DayOfWeek == targetDate.DayOfWeek,
+                RecurrenceType.Monthly => todoDate <= targetDate &&
+                    todoDate.Day == targetDate.Day,
+                RecurrenceType.Yearly => todoDate <= targetDate &&
+                    todoDate.Month == targetDate.Month && todoDate.Day == targetDate.Day,
+                _ => false
+            };
         }
 
         private async Task ApplyCompletionForDate(
