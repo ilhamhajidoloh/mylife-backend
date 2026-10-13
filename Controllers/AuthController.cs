@@ -64,8 +64,8 @@ namespace back_mylife.Controllers
                 host = host.Split(',')[0].Trim();
             }
 
-            var path = Url.Action(nameof(GetProfileImage), "Auth", new { userId = user.Id })
-                ?? $"/api/Auth/profile-image/{user.Id}";
+            var path = Url.Action(nameof(GetMyProfileImage), "Auth")
+                ?? "/api/Auth/profile-image";
             var proxyUrl = $"{scheme}://{host}{path}";
 
             var objectKey = _storageService.ExtractObjectKey(user.ProfileImageUrl);
@@ -271,11 +271,23 @@ namespace back_mylife.Controllers
             return Ok(new { message = "ลบรูปโปรไฟล์สำเร็จ", profileImageUrl = (string?)null });
         }
 
-        [AllowAnonymous]
+        [HttpGet("profile-image")]
+        public Task<IActionResult> GetMyProfileImage() => ServeCurrentUserProfileImage();
+
         [HttpGet("profile-image/{userId:guid}")]
-        public async Task<IActionResult> GetProfileImage(Guid userId)
+        public Task<IActionResult> GetProfileImage(Guid userId)
         {
-            var user = await _context.Users.FindAsync(userId);
+            if (!IsCurrentUser(userId))
+            {
+                return Task.FromResult<IActionResult>(NotFound(new { message = "ไม่พบรูปโปรไฟล์ของผู้ใช้นี้" }));
+            }
+
+            return ServeCurrentUserProfileImage();
+        }
+
+        private async Task<IActionResult> ServeCurrentUserProfileImage()
+        {
+            var user = await _context.Users.FindAsync(CurrentUserId);
             if (user == null || string.IsNullOrEmpty(user.ProfileImageUrl))
             {
                 return NotFound(new { message = "ไม่พบรูปโปรไฟล์ของผู้ใช้นี้" });
@@ -287,13 +299,19 @@ namespace back_mylife.Controllers
                 return NotFound(new { message = "ไม่พบ key รูปภาพใน Storage" });
             }
 
+            var ownedPrefix = $"profiles/{user.Id}";
+            if (!objectKey.StartsWith(ownedPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return NotFound(new { message = "ไม่พบรูปโปรไฟล์ของผู้ใช้นี้" });
+            }
+
             var (stream, contentType) = await _storageService.GetObjectStreamAsync(objectKey);
             if (stream == null)
             {
                 return NotFound(new { message = "ไม่พบไฟล์รูปภาพใน Storage" });
             }
 
-            Response.Headers["Cache-Control"] = "public, max-age=86400";
+            Response.Headers["Cache-Control"] = "private, max-age=300";
             return File(stream, contentType);
         }
 
